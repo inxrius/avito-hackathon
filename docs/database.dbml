@@ -1,0 +1,314 @@
+Project avito_hackathon_databases {
+  Note: '''
+  PostgreSQL stores users and the immutable, once-generated year recap.
+  ClickHouse stores append-only activity and product analytics events.
+  Cross-database references are logical and enforced by the application.
+  '''
+}
+
+Enum postgres.recap_card_type {
+  intro
+  metric
+  district
+  archetype
+  achievements
+  summary
+  final
+}
+
+Enum postgres.card_visibility {
+  personal
+  shareable
+}
+
+Enum postgres.card_visual_kind {
+  illustration
+  district
+  street
+  calendar
+  badge
+  chart
+  character
+  skyline
+}
+
+Enum postgres.achievement_level {
+  newcomer
+  local
+  expert
+  guru
+}
+
+Enum postgres.narrative_source {
+  mistral
+  template
+}
+
+Enum postgres.decision_kind {
+  archetype_role
+  archetype_style
+  achievement
+}
+
+Enum postgres.comparison_operator {
+  eq
+  neq
+  gt
+  gte
+  lt
+  lte
+}
+
+Enum postgres.share_fact_kind {
+  main_district
+  active_days
+  top_achievement
+}
+
+Table postgres.users [headerColor: #336791] {
+  id uuid [pk, not null, default: `gen_random_uuid()`]
+  display_name varchar(100) [not null]
+  avatar_url text
+  description varchar(500) [not null]
+  created_at timestamptz [not null, default: `CURRENT_TIMESTAMP`]
+  updated_at timestamptz [not null, default: `CURRENT_TIMESTAMP`]
+}
+
+Table postgres.user_available_years [headerColor: #336791] {
+  user_id uuid [not null]
+  year smallint [not null]
+  created_at timestamptz [not null, default: `CURRENT_TIMESTAMP`]
+
+  indexes {
+    (user_id, year) [pk]
+    (year, user_id) [name: 'user_available_years_year_idx']
+  }
+}
+
+Table postgres.verticals [headerColor: #336791, note: 'Closed application catalog of Avito verticals.'] {
+  code varchar(50) [pk, not null]
+  title varchar(100) [not null, unique]
+}
+
+Table postgres.categories [headerColor: #336791, note: 'Category values belong to a vertical and are referenced by code.'] {
+  code varchar(50) [pk, not null]
+  vertical_code varchar(50) [not null]
+  title varchar(100) [not null]
+
+  indexes {
+    (vertical_code, title) [unique]
+    (vertical_code, code) [name: 'categories_vertical_idx']
+  }
+}
+
+Table postgres.metric_definitions [headerColor: #336791] {
+  code varchar(50) [pk, not null]
+  title varchar(120) [not null]
+  default_unit varchar(30)
+}
+
+Table postgres.archetype_roles [headerColor: #336791] {
+  code varchar(50) [pk, not null]
+  title varchar(100) [not null, unique]
+}
+
+Table postgres.archetype_styles [headerColor: #336791] {
+  code varchar(50) [pk, not null]
+  title varchar(100) [not null, unique]
+}
+
+Table postgres.achievement_definitions [headerColor: #336791] {
+  code varchar(50) [pk, not null]
+  title varchar(100) [not null, unique]
+  description varchar(300) [not null]
+  icon_code varchar(100) [not null]
+}
+
+Table postgres.recaps [headerColor: #336791, note: 'Immutable generated snapshot. UNIQUE (user_id, year) guarantees one recap per user and year.'] {
+  id uuid [pk, not null, default: `gen_random_uuid()`]
+  user_id uuid [not null]
+  year smallint [not null]
+  schema_version varchar(20) [not null]
+  algorithm_version varchar(50) [not null]
+  feature_schema_version varchar(50) [not null]
+  activity_hash varchar(100) [not null]
+  generated_at timestamptz [not null, default: `CURRENT_TIMESTAMP`]
+  narrative_source postgres.narrative_source [not null]
+  prompt_version varchar(50) [not null]
+  narrative_model varchar(100)
+  summary_title varchar(120) [not null]
+  summary_text varchar(1000) [not null]
+  main_vertical_code varchar(50) [not null]
+  accent_token varchar(30)
+
+  indexes {
+    (user_id, year) [unique, name: 'recaps_once_per_user_year']
+    generated_at [name: 'recaps_generated_at_idx']
+  }
+}
+
+Table postgres.recap_cards [headerColor: #336791] {
+  recap_id uuid [not null]
+  card_id varchar(100) [not null]
+  type postgres.recap_card_type [not null]
+  position smallint [not null]
+  visibility postgres.card_visibility [not null]
+  eyebrow varchar(100)
+  title varchar(120) [not null]
+  description varchar(500)
+  visual_kind postgres.card_visual_kind
+  visual_asset_code varchar(100)
+  explainable boolean [not null, default: false]
+  data jsonb [not null, default: `{}`]
+
+  indexes {
+    (recap_id, card_id) [pk]
+    (recap_id, position) [unique]
+  }
+}
+
+Table postgres.recap_metrics [headerColor: #336791] {
+  recap_id uuid [not null]
+  metric_code varchar(50) [not null]
+  value "double precision" [not null]
+  unit varchar(30)
+  secondary_label varchar(200)
+
+  indexes {
+    (recap_id, metric_code) [pk]
+  }
+}
+
+Table postgres.recap_archetypes [headerColor: #336791] {
+  recap_id uuid [pk, not null]
+  role_code varchar(50) [not null]
+  style_code varchar(50) [not null]
+}
+
+Table postgres.recap_achievements [headerColor: #336791] {
+  recap_id uuid [not null]
+  achievement_code varchar(50) [not null]
+  level postgres.achievement_level [not null]
+  position smallint [not null]
+  title varchar(100) [not null]
+  description varchar(300) [not null]
+  icon_code varchar(100) [not null]
+  metric_code varchar(50)
+  current_value "double precision"
+  next_level_threshold "double precision"
+
+  indexes {
+    (recap_id, achievement_code) [pk]
+    (recap_id, position) [unique]
+  }
+}
+
+Table postgres.recap_explanations [headerColor: #336791] {
+  id uuid [pk, not null, default: `gen_random_uuid()`]
+  recap_id uuid [not null]
+  card_id varchar(100) [not null]
+  kind postgres.decision_kind [not null]
+  role_code varchar(50)
+  style_code varchar(50)
+  achievement_code varchar(50)
+  reason varchar(500) [not null]
+  rule_version varchar(50) [not null]
+}
+
+Table postgres.recap_rule_facts [headerColor: #336791] {
+  explanation_id uuid [not null]
+  metric_code varchar(50) [not null]
+  actual "double precision" [not null]
+  operator postgres.comparison_operator [not null]
+  threshold "double precision" [not null]
+  matched boolean [not null]
+
+  indexes {
+    (explanation_id, metric_code) [pk]
+  }
+}
+
+Table postgres.share_cards [headerColor: #336791] {
+  recap_id uuid [pk, not null]
+  schema_version varchar(20) [not null]
+  title varchar(120) [not null]
+  subtitle varchar(200) [not null]
+  main_vertical_code varchar(50) [not null]
+  colors "varchar(7)[]" [not null]
+  created_at timestamptz [not null, default: `CURRENT_TIMESTAMP`]
+}
+
+Table postgres.share_facts [headerColor: #336791] {
+  recap_id uuid [not null]
+  position smallint [not null]
+  kind postgres.share_fact_kind [not null]
+  label varchar(100) [not null]
+  value varchar(200) [not null]
+
+  indexes {
+    (recap_id, position) [pk]
+    (recap_id, kind) [unique]
+  }
+}
+
+Table postgres.share_achievements [headerColor: #336791] {
+  recap_id uuid [not null]
+  achievement_code varchar(50) [not null]
+  position smallint [not null]
+
+  indexes {
+    (recap_id, achievement_code) [pk]
+    (recap_id, position) [unique]
+  }
+}
+
+Table avito_recap.activity_events [headerColor: #FFCC01, note: 'ClickHouse MergeTree; PARTITION BY toYYYYMM(occurred_at); ORDER BY (profile_id, occurred_at, event_type, event_id). Type, vertical and category are ClickHouse Enum values.'] {
+  event_id uuid [not null]
+  profile_id uuid [not null]
+  event_type "Enum8('listing_viewed', 'favorite_added', 'search_saved', 'chat_started', 'listing_published', 'sale_completed', 'purchase_completed', 'delivery_used')" [not null]
+  vertical_code "Nullable(Enum8('goods', 'transport', 'real_estate', 'jobs', 'services'))"
+  category_code "Nullable(Enum16('electronics', 'home_and_garden', 'clothing_and_accessories', 'hobbies_and_leisure', 'cars', 'apartments', 'vacancies', 'personal_services'))"
+  listing_id "Nullable(UUID)"
+  occurred_at "DateTime64(3, 'UTC')" [not null]
+  properties_json string [not null, default: '{}']
+  ingested_at "DateTime64(3, 'UTC')" [not null, default: `now64(3)`]
+}
+
+Table avito_recap.interactions [headerColor: #FFCC01, note: 'ClickHouse MergeTree; PARTITION BY toYYYYMM(occurred_at); ORDER BY (recap_id, occurred_at, event_name, event_id).'] {
+  event_id uuid [not null]
+  recap_id uuid [not null]
+  session_id uuid [not null]
+  event_name "Enum8('recap_opened', 'card_viewed', 'explanation_opened', 'recap_completed', 'share_preview_opened', 'share_clicked', 'achievements_expanded', 'feedback_submitted')" [not null]
+  occurred_at "DateTime64(3, 'UTC')" [not null]
+  properties_json string [not null, default: '{}']
+  received_at "DateTime64(3, 'UTC')" [not null, default: `now64(3)`]
+}
+
+Ref: postgres.user_available_years.user_id > postgres.users.id [delete: cascade]
+Ref: postgres.categories.vertical_code > postgres.verticals.code
+Ref: postgres.recaps.(user_id, year) > postgres.user_available_years.(user_id, year)
+Ref: postgres.recaps.main_vertical_code > postgres.verticals.code
+Ref: postgres.recap_cards.recap_id > postgres.recaps.id [delete: cascade]
+Ref: postgres.recap_metrics.recap_id > postgres.recaps.id [delete: cascade]
+Ref: postgres.recap_metrics.metric_code > postgres.metric_definitions.code
+Ref: postgres.recap_archetypes.recap_id - postgres.recaps.id [delete: cascade]
+Ref: postgres.recap_archetypes.role_code > postgres.archetype_roles.code
+Ref: postgres.recap_archetypes.style_code > postgres.archetype_styles.code
+Ref: postgres.recap_achievements.recap_id > postgres.recaps.id [delete: cascade]
+Ref: postgres.recap_achievements.achievement_code > postgres.achievement_definitions.code
+Ref: postgres.recap_achievements.metric_code >? postgres.metric_definitions.code
+Ref: postgres.recap_explanations.(recap_id, card_id) > postgres.recap_cards.(recap_id, card_id) [delete: cascade]
+Ref: postgres.recap_explanations.role_code >? postgres.archetype_roles.code
+Ref: postgres.recap_explanations.style_code >? postgres.archetype_styles.code
+Ref: postgres.recap_explanations.achievement_code >? postgres.achievement_definitions.code
+Ref: postgres.recap_rule_facts.explanation_id > postgres.recap_explanations.id [delete: cascade]
+Ref: postgres.recap_rule_facts.metric_code > postgres.metric_definitions.code
+Ref: postgres.share_cards.recap_id - postgres.recaps.id [delete: cascade]
+Ref: postgres.share_cards.main_vertical_code > postgres.verticals.code
+Ref: postgres.share_facts.recap_id > postgres.share_cards.recap_id [delete: cascade]
+Ref: postgres.share_achievements.recap_id > postgres.share_cards.recap_id [delete: cascade]
+Ref: postgres.share_achievements.(recap_id, achievement_code) > postgres.recap_achievements.(recap_id, achievement_code) [delete: cascade]
+
+// Logical cross-database references.
+Ref: avito_recap.activity_events.profile_id > postgres.users.id
+Ref: avito_recap.interactions.recap_id > postgres.recaps.id
