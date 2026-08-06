@@ -2,7 +2,7 @@ openapi: 3.0.3
 
 info:
   title: Avito Year Recap API
-  version: 2.0.0
+  version: 2.0.1
   description: |
     REST API персональных «Итогов года» в концепции города.
 
@@ -174,6 +174,8 @@ paths:
                   $ref: "#/components/examples/RecapExplanation"
         "404":
           $ref: "#/components/responses/RecapNotFound"
+        "409":
+          $ref: "#/components/responses/ExplanationNotAvailable"
         "500":
           $ref: "#/components/responses/InternalError"
 
@@ -196,6 +198,8 @@ paths:
                   $ref: "#/components/examples/ShareCard"
         "404":
           $ref: "#/components/responses/RecapNotFound"
+        "409":
+          $ref: "#/components/responses/ShareNotAvailable"
         "500":
           $ref: "#/components/responses/InternalError"
 
@@ -300,6 +304,28 @@ components:
           example:
             code: recap_not_found
             message: Итоги года не найдены
+            request_id: eece2db3-0987-4694-a993-f7de7c487290
+
+    ExplanationNotAvailable:
+      description: Объяснение решений отключено для этих итогов.
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/APIError"
+          example:
+            code: explanation_not_available
+            message: Объяснение решений недоступно
+            request_id: eece2db3-0987-4694-a993-f7de7c487290
+
+    ShareNotAvailable:
+      description: Публичная карточка отключена для этих итогов.
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/APIError"
+          example:
+            code: share_not_available
+            message: Публичная карточка недоступна
             request_id: eece2db3-0987-4694-a993-f7de7c487290
 
     InsufficientActivity:
@@ -516,10 +542,18 @@ components:
       properties:
         share_available:
           type: boolean
+          description: |
+            Если `false`, публичная ShareCard не формируется, кнопка sharing
+            скрыта, а `GET /recaps/{id}/share` возвращает `409 share_not_available`.
         explanation_available:
           type: boolean
+          description: |
+            Если `false`, объяснение решений не формируется, а
+            `GET /recaps/{id}/explanation` возвращает
+            `409 explanation_not_available`.
         feedback_available:
           type: boolean
+          description: Определяет доступность отправки пользовательской обратной связи.
 
     Vertical:
       type: object
@@ -938,12 +972,19 @@ components:
         facts:
           type: array
           minItems: 1
+          description: |
+            Публичные подтверждающие признаки выбранного решения. Массив не
+            обязан раскрывать полную внутреннюю формулу, derived scores или
+            все промежуточные значения алгоритма.
           items:
             $ref: "#/components/schemas/RuleFact"
 
     RuleFact:
       type: object
       additionalProperties: false
+      description: |
+        Проверяемый публичный факт, подтверждающий решение. Не является
+        гарантированно полным представлением внутреннего правила.
       required: [metric_code, actual, operator, threshold, matched]
       properties:
         metric_code:
@@ -972,6 +1013,16 @@ components:
         profile_name:
           type: string
           maxLength: 100
+        avatar_url:
+          type: string
+          format: uri
+          pattern: '^https://'
+          maxLength: 2048
+          description: |
+            Публичный HTTPS CDN URL. URL не должен содержать userinfo,
+            query-параметры, fragment, секреты, UUID пользователя, внутренний
+            profile_id, localhost или IP-адрес. Поле отсутствует, если URL не
+            прошёл allowlist-проверку.
         year:
           type: integer
           minimum: 2000
@@ -1102,6 +1153,8 @@ components:
             - invalid_argument
             - profile_not_found
             - recap_not_found
+            - explanation_not_available
+            - share_not_available
             - insufficient_activity
             - rate_limit_exceeded
             - dependency_unavailable
@@ -1165,13 +1218,13 @@ components:
           name: Алексей
           avatar_url: /assets/profiles/alexey.webp
         generation:
-          algorithm_version: recap-rules-2026.08.2
+          algorithm_version: recap-rules-2026.08.2-spike
           feature_schema_version: features-v1
           activity_hash: sha256:e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855
           generated_at: "2026-08-05T17:30:00Z"
           narrative:
             source: mistral
-            prompt_version: city-summary-v1
+            prompt_version: city-summary-v2-spike
             model: mistral-small-latest
         theme:
           code: city
@@ -1230,7 +1283,7 @@ components:
             position: 4
             visibility: shareable
             title: Твои городские звания
-            description: Три достижения, которые лучше всего описывают твой год
+            description: Достижения, которые лучше всего описывают твой год
             explainable: true
             visual: {kind: badge, asset_code: top-achievements}
             data:
@@ -1274,14 +1327,14 @@ components:
       summary: Причина выбора архетипа
       value:
         recap_id: 6dfc1418-e106-49ab-b839-c9498418e8f6
-        algorithm_version: recap-rules-2026.08.2
+        algorithm_version: recap-rules-2026.08.2-spike
         activity_hash: sha256:e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855
         decisions:
           - card_id: archetype
             kind: archetype_role
             code: findings_seeker
             reason: Сохранений было заметно больше, чем завершённых покупок
-            rule_version: archetype-rules-v1
+            rule_version: archetype-rules-v2-spike
             facts:
               - metric_code: favorites_count
                 actual: 46
@@ -1295,6 +1348,7 @@ components:
         schema_version: "2.0"
         recap_id: 6dfc1418-e106-49ab-b839-c9498418e8f6
         profile_name: Алексей
+        avatar_url: https://cdn.example/avatar.png
         year: 2026
         title: Мой год в городе Авито
         subtitle: Вдумчивый искатель находок
