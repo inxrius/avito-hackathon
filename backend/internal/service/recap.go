@@ -1,14 +1,12 @@
 package service
 
 import (
-	"crypto/sha256"
-	"encoding/hex"
-	"fmt"
-	"sort"
+	"context"
 	"time"
 
 	"github.com/google/uuid"
-	"github.com/inxrius/avito-hackathon/internal/model"
+	"recap-personalization/internal/model"
+	recap "recap-personalization/internal/recap"
 )
 
 // GenerateRecap — основная бизнес-логика генерации итогов
@@ -22,8 +20,8 @@ func (s *Service) GenerateRecap(profileID string, year int) (*model.Recap, error
 		return nil, err
 	}
 
-	// 2. Загружаем активности и профиль
-	activities, err := s.repo.GetActivitiesByProfileID(profileID)
+	// 2. Загружаем активности за указанный год из ClickHouse
+	activities, err := s.clickHouseActivities.GetActivitiesByProfileIDAndYear(profileID, year)
 	if err != nil {
 		return nil, err
 	}
@@ -32,399 +30,283 @@ func (s *Service) GenerateRecap(profileID string, year int) (*model.Recap, error
 		return nil, err
 	}
 
-	// 3. Вычисляем хеш активностей
-	activityHash := computeActivityHash(activities)
-
-	// 4. Формируем карточки
-	cards := buildCards(profile, activities, year)
-
-	// 5. Определяем главный район
-	mainDistrict := determineMainDistrict(activities)
-
-	// 6. Собираем Recap
-	recap := &model.Recap{
-		ID:                   uuid.New(),
-		ProfileID:            profile.ID,
-		Status:               "completed",
-		Year:                 year,
-		SchemaVersion:        "2.0",
-		AlgorithmVersion:     "recap-rules-2026.08.2",
-		FeatureSchemaVersion: "features-v1",
-		ActivityHash:         activityHash,
-		GeneratedAt:          time.Now().UTC(),
-		NarrativeSource:      "template",
-		PromptVersion:        "city-summary-v1",
-		NarrativeModel:       nil,
-		MainVerticalCode:     mainDistrict.Code,
-		AccentToken:          strPtr("violet"),
-		SummaryTitle:         fmt.Sprintf("Год в городе %s", profile.Name),
-		SummaryText:          buildSummaryText(profile, activities),
-		Profile: model.RecapProfile{
-			ID:        profile.ID,
-			Name:      profile.Name,
-			AvatarURL: profile.AvatarURL,
-		},
-		Generation: model.RecapGeneration{
-			AlgorithmVersion:     "recap-rules-2026.08.2",
-			FeatureSchemaVersion: "features-v1",
-			ActivityHash:         activityHash,
-			GeneratedAt:          time.Now().UTC(),
-			Narrative: model.NarrativeGeneration{
-				Source:        "template",
-				PromptVersion: "city-summary-v1",
-				Model:         nil,
-			},
-		},
-		Theme: model.RecapTheme{
-			Code:         "city",
-			MainDistrict: mainDistrict,
-			AccentToken:  strPtr("violet"),
-		},
-		Cards: cards,
-		Capabilities: model.RecapCapabilities{
-			ShareAvailable:       true,
-			ExplanationAvailable: true,
-			FeedbackAvailable:    true,
-		},
+	// 3. Конвертируем активности в формат recap
+	recapEvents := make([]recap.ActivityEvent, 0, len(activities))
+	for _, a := range activities {
+		recapEvents = append(recapEvents, recap.ActivityEvent{
+			EventID:      a.EventID,
+			ProfileID:    a.ProfileID,
+			EventType:    convertEventType(a.EventType),
+			CategoryCode: a.CategoryCode,
+			OccurredAt:   time.Unix(a.OccurredAt, 0),
+		})
 	}
 
-	// 7. Сохраняем recap (включая карточки, метрики, архетипы, достижения)
-	if err := s.repo.CreateRecap(recap); err != nil {
+	// 4. Генерируем recap через recap pipeline
+	output, err := s.recapGenerator.Generate(context.Background(), recap.GenerateInput{
+		RecapID:     generateRecapID(),
+		Profile:     convertProfile(profile),
+		Year:        year,
+		Activities:  recapEvents,
+		GeneratedAt: time.Now().UTC(),
+	})
+	if err != nil {
 		return nil, err
 	}
 
-	return recap, nil
+	// 5. Конвертируем результат в нашу модель (включая explanation и share)
+	recapModel := convertRecapOutput(&output, profile)
+	
+	// 6. Сохраняем recap
+	if err := s.repo.CreateRecap(recapModel); err != nil {
+		return nil, err
+	}
+
+	return recapModel, nil
 }
 
-// computeActivityHash — хеш активностей для детекции изменений
-func computeActivityHash(activities []model.Activity) string {
-	h := sha256.New()
-	for _, a := range activities {
-		fmt.Fprintf(h, "%s|%s|%s|%f|%d|", a.ID, a.Type, a.Category, a.Value, a.Timestamp.UnixNano())
-	}
-	return "sha256:" + hex.EncodeToString(h.Sum(nil))
-}
-
-// determineMainDistrict — определяет главный район на основе активностей
-func determineMainDistrict(activities []model.Activity) model.Vertical {
-	districtCounts := make(map[string]int)
-	for _, a := range activities {
-		districtCounts[a.Category]++
-	}
-
-	maxCount := 0
-	topDistrict := "goods"
-	districtMap := map[string]string{
-		"Недвижимость": "real_estate",
-		"Авто":         "transport",
-		"Электроника":  "goods",
-		"Для дома":     "goods",
-	}
-
-	for district, count := range districtCounts {
-		if count > maxCount {
-			maxCount = count
-			if code, ok := districtMap[district]; ok {
-				topDistrict = code
-			} else {
-				topDistrict = "goods"
-			}
-		}
-	}
-
-	titleMap := map[string]string{
-		"real_estate": "Недвижимость",
-		"transport":   "Транспорт",
-		"goods":       "Товары",
-	}
-
-	return model.Vertical{
-		Code:  topDistrict,
-		Title: titleMap[topDistrict],
-	}
-}
-
-// buildSummaryText — формирует краткое описание итогов
-func buildSummaryText(profile *model.Profile, activities []model.Activity) string {
-	archetype := resolveArchetype(profile.Scenario, activities)
-	return fmt.Sprintf("%s — %s", profile.Name, archetype.Description)
-}
-
-// buildCards — собирает все карточки для recap
-func buildCards(profile *model.Profile, activities []model.Activity, year int) []model.RecapCard {
-	cards := []model.RecapCard{
-		{
-			ID:          "intro",
-			Type:        "intro",
-			Position:    0,
-			Visibility:  "shareable",
-			Title:       fmt.Sprintf("Город %s", profile.Name),
-			Explainable: false,
-			Visual:      model.CardVisual{Kind: "skyline", AssetCode: strPtr("city-intro")},
-			Data: map[string]interface{}{
-				"year":        year,
-				"subtitle":    fmt.Sprintf("%d действий · %d района · %d строек на окраине", len(activities), countDistricts(activities), countUnfinished(activities)),
-				"archetype":   profile.Scenario,
-				"description": profile.Description,
-			},
-		},
-	}
-
-	// Метрики (районы)
-	metrics := aggregateMetrics(activities)
-	cardID := 1
-	for district, value := range metrics {
-		cards = append(cards, model.RecapCard{
-			ID:          fmt.Sprintf("metric-%d", cardID),
-			Type:        "metric",
-			Position:    cardID,
-			Visibility:  "shareable",
-			Title:       district,
-			Explainable: false,
-			Visual:      model.CardVisual{Kind: "district", AssetCode: strPtr("district-" + district)},
-			Data: map[string]interface{}{
-				"metric_code": "category_" + district,
-				"value":       value,
-				"unit":        "действий",
-			},
-		})
-		cardID++
-	}
-
-	// Архетип
-	archetype := resolveArchetype(profile.Scenario, activities)
-	cards = append(cards, model.RecapCard{
-		ID:          "archetype",
-		Type:        "archetype",
-		Position:    cardID,
-		Visibility:  "shareable",
-		Title:       "Твой архетип",
-		Explainable: true,
-		Visual:      model.CardVisual{Kind: "character", AssetCode: strPtr("archetype-" + profile.Scenario)},
-		Data: map[string]interface{}{
-			"role":  model.ArchetypeRole{Code: profile.Scenario, Title: archetype.Name},
-			"style": model.ArchetypeStyle{Code: "thoughtful", Title: "Вдумчивый"},
-		},
-	})
-	cardID++
-
-	// Достижения
-	achievements := buildAchievements(activities)
-	if len(achievements) > 0 {
-		cards = append(cards, model.RecapCard{
-			ID:          "achievements",
-			Type:        "achievements",
-			Position:    cardID,
-			Visibility:  "shareable",
-			Title:       "Твои городские звания",
-			Explainable: true,
-			Visual:      model.CardVisual{Kind: "badge", AssetCode: strPtr("top-achievements")},
-			Data: map[string]interface{}{
-				"items":       achievements,
-				"total_count": len(achievements),
-			},
-		})
-		cardID++
-	}
-
-	// Возможности (недостроенные элементы)
-	opportunities := buildOpportunities(activities)
-	for _, opp := range opportunities {
-		cards = append(cards, model.RecapCard{
-			ID:          fmt.Sprintf("opportunity-%d", cardID),
-			Type:        "opportunity",
-			Position:    cardID,
-			Visibility:  "personal",
-			Title:       opp.Title,
-			Explainable: false,
-			Visual:      model.CardVisual{Kind: "illustration", AssetCode: nil},
-			Data: map[string]interface{}{
-				"description": opp.Description,
-				"action":      opp.Action,
-			},
-		})
-		cardID++
-	}
-
-	// Финальная карточка
-	cards = append(cards, model.RecapCard{
-		ID:          "final",
-		Type:        "final",
-		Position:    cardID,
-		Visibility:  "shareable",
-		Title:       "До встречи в городе",
-		Explainable: false,
-		Visual:      model.CardVisual{Kind: "skyline", AssetCode: strPtr("city-final")},
-		Data: map[string]interface{}{
-			"show_share_button": true,
-			"show_feedback":     true,
-			"actions": []map[string]string{
-				{"label": "Вернуться в избранное", "url": "/favorites"},
-				{"label": "Открыть рекомендации", "url": "/recommendations"},
-			},
-		},
-	})
-
-	// Сортируем по позиции
-	sort.Slice(cards, func(i, j int) bool { return cards[i].Position < cards[j].Position })
-	return cards
-}
-
-// Вспомогательные функции для подсчётов
-
-func countDistricts(activities []model.Activity) int {
-	districts := map[string]struct{}{}
-	for _, a := range activities {
-		districts[a.Category] = struct{}{}
-	}
-	return len(districts)
-}
-
-func countUnfinished(activities []model.Activity) int {
-	count := 0
-	for _, a := range activities {
-		if a.Type == "favorite" || a.Type == "view" {
-			count++
-		}
-	}
-	return count
-}
-
-func aggregateMetrics(activities []model.Activity) map[string]float64 {
-	metrics := map[string]float64{}
-	for _, a := range activities {
-		metrics[a.Category] += a.Value
-	}
-	return metrics
-}
-
-type archetypeResult struct {
-	Name        string
-	Description string
-	Badges      []string
-}
-
-func resolveArchetype(scenario string, activities []model.Activity) archetypeResult {
-	switch scenario {
-	case "seller":
-		return archetypeResult{
-			Name:        "Мастер обмена",
-			Description: "Ты превращаешь лишнее в нужное и делаешь площадку живее.",
-			Badges:      []string{"Продавец года", "Надёжный партнёр"},
-		}
-	case "unfinished":
-		return archetypeResult{
-			Name:        "Исследователь возможностей",
-			Description: "Ты собираешь варианты и готовишься к большому выбору.",
-			Badges:      []string{"Коллекционер идей", "Внимательный планировщик"},
-		}
-	case "insufficient":
-		return archetypeResult{
-			Name:        "Новый житель",
-			Description: "Город только начинает строиться, и у тебя впереди много интересных сценариев.",
-			Badges:      []string{"Первый шаг"},
-		}
+// convertEventType конвертирует тип события из ClickHouse в модель recap
+func convertEventType(eventType string) recap.EventType {
+	switch eventType {
+	case "favorite_added":
+		return recap.EventFavoriteAdded
+	case "listing_viewed":
+		return recap.EventListingViewed
+	case "purchase_completed", "sale_completed":
+		return recap.EventPurchaseCompleted
+	case "chat_started":
+		return recap.EventChatStarted
+	case "listing_published":
+		return recap.EventListingPublished
 	default:
-		return archetypeResult{
-			Name:        "Охотник за домом",
-			Description: "Ты долго выбираешь, но когда наступает время — начинаешь обустраивать.",
-			Badges:      []string{"Ранняя пташка", "Мастер торга", "Новосёл"},
+		return recap.EventListingViewed
+	}
+}
+
+// convertCategory конвертирует категорию в код категории recap
+func convertCategory(category string) string {
+	categoryMap := map[string]string{
+		"Недвижимость": "apartments",
+		"Авто":         "cars",
+		"Электроника":  "electronics",
+		"Для дома":     "home_and_garden",
+	}
+	if code, ok := categoryMap[category]; ok {
+		return code
+	}
+	return "electronics"
+}
+
+// convertProfile конвертирует профиль в формат recap
+func convertProfile(profile *model.Profile) recap.ProfileSnapshot {
+	avatarURL := ""
+	if profile.AvatarURL != nil {
+		avatarURL = *profile.AvatarURL
+	}
+	return recap.ProfileSnapshot{
+		ID:        profile.ID.String(),
+		Name:      profile.Name,
+		AvatarURL: avatarURL,
+	}
+}
+
+// generateRecapID генерирует UUID для recap
+func generateRecapID() string {
+	return uuid.New().String()
+}
+
+// convertRecapOutput конвертирует вывод pipeline в нашу модель Recap
+func convertRecapOutput(output *recap.GenerateOutput, profile *model.Profile) *model.Recap {
+	accentToken := ""
+	if output.Recap.Theme.AccentToken != nil {
+		accentToken = string(*output.Recap.Theme.AccentToken)
+	}
+	
+	recap := &model.Recap{
+		ID:                   uuid.MustParse(output.Recap.ID),
+		ProfileID:            uuid.MustParse(output.Recap.ProfileID),
+		Status:               "completed",
+		Year:                 output.Recap.Year,
+		SchemaVersion:        output.Recap.SchemaVersion,
+		AlgorithmVersion:     output.Recap.Generation.AlgorithmVersion,
+		FeatureSchemaVersion: output.Recap.Generation.FeatureSchemaVersion,
+		ActivityHash:         output.Recap.Generation.ActivityHash,
+		GeneratedAt:          output.Recap.Generation.GeneratedAt,
+		NarrativeSource:      output.Recap.Generation.Narrative.Source,
+		PromptVersion:        output.Recap.Generation.Narrative.PromptVersion,
+		NarrativeModel:       output.Recap.Generation.Narrative.Model,
+		MainVerticalCode:     string(output.Recap.Theme.MainDistrict.Code),
+		AccentToken:          &accentToken,
+		SummaryTitle:         output.Narrative.SummaryTitle,
+		SummaryText:          output.Narrative.SummaryText,
+		Profile: model.RecapProfile{
+			ID:        uuid.MustParse(output.Recap.Profile.ID),
+			Name:      output.Recap.Profile.Name,
+			AvatarURL: output.Recap.Profile.AvatarURL,
+		},
+		Generation: model.RecapGeneration{
+			AlgorithmVersion:     output.Recap.Generation.AlgorithmVersion,
+			FeatureSchemaVersion: output.Recap.Generation.FeatureSchemaVersion,
+			ActivityHash:         output.Recap.Generation.ActivityHash,
+			GeneratedAt:          output.Recap.Generation.GeneratedAt,
+			Narrative: model.NarrativeGeneration{
+				Source:        output.Recap.Generation.Narrative.Source,
+				PromptVersion: output.Recap.Generation.Narrative.PromptVersion,
+				Model:         output.Recap.Generation.Narrative.Model,
+			},
+		},
+		Theme: model.RecapTheme{
+			Code:         output.Recap.Theme.Code,
+			MainDistrict: convertVertical(output.Recap.Theme.MainDistrict),
+			AccentToken:  &accentToken,
+		},
+		Cards:        convertCards(output.Recap.Cards),
+		Capabilities: convertCapabilities(output.Recap.Capabilities),
+	}
+	
+	// Добавляем explanation и share в recap
+	recap.Explanation = convertExplanation(output.Explanation)
+	recap.Share = convertShare(output.Share)
+
+	return recap
+}
+
+// convertVertical конвертирует Vertical из recap в model
+func convertVertical(v recap.Vertical) model.Vertical {
+	return model.Vertical{
+		Code:  string(v.Code),
+		Title: v.Title,
+	}
+}
+
+// convertCards конвертирует карточки из модели recap в model
+func convertCards(cards []recap.RecapCard) []model.RecapCard {
+	result := make([]model.RecapCard, 0, len(cards))
+	for _, card := range cards {
+		base := card.Base()
+		dataMap := make(map[string]interface{})
+		
+		// Извлекаем данные из конкретного типа карточки
+		switch c := card.(type) {
+		case recap.IntroCard:
+			dataMap["year"] = c.Data.Year
+		case recap.MetricCard:
+			dataMap["metric_code"] = c.Data.MetricCode
+			dataMap["value"] = c.Data.Value
+			dataMap["unit"] = c.Data.Unit
+		case recap.DistrictCard:
+			dataMap["vertical"] = c.Data.Vertical
+			dataMap["activity_share"] = c.Data.ActivityShare
+			if c.Data.TopCategory != nil {
+				dataMap["top_category"] = c.Data.TopCategory
+			}
+		case recap.ArchetypeCard:
+			dataMap["role"] = c.Data.Role
+			dataMap["style"] = c.Data.Style
+		case recap.AchievementsCard:
+			dataMap["items"] = c.Data.Items
+			dataMap["total_count"] = c.Data.TotalCount
+		case recap.FinalCard:
+			dataMap["show_share_button"] = c.Data.ShowShareButton
+			dataMap["show_feedback"] = c.Data.ShowFeedback
 		}
-	}
-}
-
-type achievement struct {
-	Code        string  `json:"code"`
-	Title       string  `json:"title"`
-	Description string  `json:"description"`
-	Level       string  `json:"level"`
-	Icon        string  `json:"icon"`
-	MetricCode  *string `json:"metric_code,omitempty"`
-}
-
-func buildAchievements(activities []model.Activity) []achievement {
-	result := []achievement{}
-	if len(activities) > 0 {
-		result = append(result, achievement{
-			Code:        "first_step",
-			Title:       "Первый взгляд",
-			Description: "Ты начал исследовать город.",
-			Level:       "newcomer",
-			Icon:        "👁",
-		})
-	}
-	if countFavorites(activities) >= 5 {
-		result = append(result, achievement{
-			Code:        "collector",
-			Title:       "Коллекционер",
-			Description: "Ты сохранил много понравившегося.",
-			Level:       "local",
-			Icon:        "⭐",
-		})
-	}
-	if countPurchases(activities) >= 3 {
-		result = append(result, achievement{
-			Code:        "active_buyer",
-			Title:       "Активный покупатель",
-			Description: "Ты совершил несколько значимых покупок.",
-			Level:       "expert",
-			Icon:        "🛒",
+		
+		result = append(result, model.RecapCard{
+			ID:          base.ID,
+			Type:        string(base.Type),
+			Position:    base.Position,
+			Visibility:  string(base.Visibility),
+			Eyebrow:     base.Eyebrow,
+			Title:       base.Title,
+			Description: base.Description,
+			Visual:      convertVisual(base.Visual),
+			Explainable: base.Explainable,
+			Data:        dataMap,
 		})
 	}
 	return result
 }
 
-type opportunity struct {
-	Title       string
-	Description string
-	Action      string
+// convertVisual конвертирует визуал карточки
+func convertVisual(v *recap.CardVisual) model.CardVisual {
+	if v == nil {
+		return model.CardVisual{}
+	}
+	return model.CardVisual{
+		Kind:      string(v.Kind),
+		AssetCode: v.AssetCode,
+	}
 }
 
-func buildOpportunities(activities []model.Activity) []opportunity {
-	result := []opportunity{}
-	if countUnfinished(activities) > 0 {
-		result = append(result, opportunity{
-			Title:       "Незавершённые сценарии",
-			Description: "У тебя есть сохранённые варианты, которые ещё не обсуждены.",
-			Action:      "Вернуться к диалогам",
+// convertCapabilities конвертирует возможности
+func convertCapabilities(c recap.Capabilities) model.RecapCapabilities {
+	return model.RecapCapabilities{
+		ShareAvailable:       c.ShareAvailable,
+		ExplanationAvailable: c.ExplanationAvailable,
+		FeedbackAvailable:    c.FeedbackAvailable,
+	}
+}
+
+// convertExplanation конвертирует объяснение из модели recap
+func convertExplanation(explanation *recap.RecapExplanation) *model.RecapExplanation {
+	if explanation == nil {
+		return nil
+	}
+	
+	decisions := make([]model.DecisionExplanation, 0, len(explanation.Decisions))
+	for _, d := range explanation.Decisions {
+		facts := make([]model.RuleFact, 0, len(d.Facts))
+		for _, f := range d.Facts {
+			facts = append(facts, model.RuleFact{
+				MetricCode: f.MetricCode,
+				Actual:     f.Actual,
+				Operator:   f.Operator,
+				Threshold:  f.Threshold,
+				Matched:    f.Matched,
+			})
+		}
+		decisions = append(decisions, model.DecisionExplanation{
+			CardID:      d.CardID,
+			Kind:        d.Kind,
+			Code:        d.Code,
+			Reason:      d.Reason,
+			RuleVersion: d.RuleVersion,
+			Facts:       facts,
 		})
 	}
-	if countCategories(activities) < 3 {
-		result = append(result, opportunity{
-			Title:       "Новый район",
-			Description: "Попробуй explore категорию, которую ты ещё не посещал.",
-			Action:      "Открыть рекомендации",
-		})
+	
+	return &model.RecapExplanation{
+		RecapID:          explanation.RecapID,
+		AlgorithmVersion: explanation.AlgorithmVersion,
+		ActivityHash:     explanation.ActivityHash,
+		Decisions:        decisions,
 	}
-	return result
 }
 
-func countFavorites(activities []model.Activity) int {
-	count := 0
-	for _, a := range activities {
-		if a.Type == "favorite" {
-			count++
-		}
+// convertShare конвертирует share карточку из модели recap
+func convertShare(share *recap.ShareCard) *recap.ShareCard {
+	if share == nil {
+		return nil
 	}
-	return count
-}
-
-func countPurchases(activities []model.Activity) int {
-	count := 0
-	for _, a := range activities {
-		if a.Type == "purchase" || a.Type == "sale" {
-			count++
-		}
+	
+	avatarURL := ""
+	if share.AvatarURL != nil {
+		avatarURL = *share.AvatarURL
 	}
-	return count
-}
-
-func countCategories(activities []model.Activity) int {
-	cats := map[string]struct{}{}
-	for _, a := range activities {
-		cats[a.Category] = struct{}{}
+	
+	return &recap.ShareCard{
+		SchemaVersion: share.SchemaVersion,
+		RecapID:       share.RecapID,
+		ProfileName:   share.ProfileName,
+		AvatarURL:     &avatarURL,
+		Year:          share.Year,
+		Title:         share.Title,
+		Subtitle:      share.Subtitle,
+		MainDistrict:  share.MainDistrict,
+		Facts:         share.Facts,
+		Achievements:  share.Achievements,
+		Visual:        share.Visual,
 	}
-	return len(cats)
 }
 
 // strPtr возвращает указатель на строку

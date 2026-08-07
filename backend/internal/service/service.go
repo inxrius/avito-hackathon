@@ -1,18 +1,31 @@
 package service
 
 import (
-	"github.com/inxrius/avito-hackathon/internal/model"
-	"github.com/inxrius/avito-hackathon/internal/repository"
+	"recap-personalization/internal/model"
+	"recap-personalization/internal/repository"
+	"recap-personalization/internal/recap/pipeline"
+	"recap-personalization/internal/recap/ports"
 )
 
 // Service — объединяет все бизнес-сервисы
 type Service struct {
-	repo *repository.Repository
+	repo              *repository.Repository
+	recapGenerator    *pipeline.Service
+	clickHouseActivities ports.ActivityRepository
+	clickHouseInteractions ports.InteractionRepository
 }
 
 // NewService создаёт новый экземпляр Service
-func NewService(repo *repository.Repository) *Service {
-	return &Service{repo: repo}
+func NewService(repo *repository.Repository, clickHouseActivities ports.ActivityRepository, clickHouseInteractions ports.InteractionRepository) *Service {
+	recapGen := pipeline.NewGenerator(nil)
+	recapGen.Registry.PublicAvatarHosts = map[string]struct{}{}
+	
+	return &Service{
+		repo:                   repo,
+		recapGenerator:         recapGen,
+		clickHouseActivities:   clickHouseActivities,
+		clickHouseInteractions: clickHouseInteractions,
+	}
 }
 
 // GetProfiles возвращает список профилей
