@@ -1,0 +1,7 @@
+coverage.out
+coverage.html
+*.test
+.DS_Store
+.env
+coverage-summary.txt
+*.coverprofile
