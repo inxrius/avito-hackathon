@@ -4,7 +4,7 @@ import (
 	"net/http"
 
 	"github.com/gin-gonic/gin"
-	"github.com/inxrius/avito-hackathon/internal/model"
+	"recap-personalization/internal/model"
 )
 
 // GetProfiles возвращает список всех профилей

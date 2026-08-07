@@ -5,7 +5,7 @@ import (
 
 	"github.com/gin-gonic/gin"
 	"github.com/google/uuid"
-	"github.com/inxrius/avito-hackathon/internal/model"
+	"recap-personalization/internal/model"
 )
 
 // SaveInteraction сохраняет событие взаимодействия

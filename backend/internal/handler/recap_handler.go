@@ -5,7 +5,7 @@ import (
 	"strings"
 
 	"github.com/gin-gonic/gin"
-	"github.com/inxrius/avito-hackathon/internal/model"
+	"recap-personalization/internal/model"
 )
 
 // CreateRecap создаёт или возвращает существующий recap (идемпотентный)
@@ -98,30 +98,31 @@ func (h *Handler) GetRecapExplanation(c *gin.Context) {
 		return
 	}
 
-	// Формируем объяснение (пока статичное)
+	// Проверяем, доступно ли объяснение
+	if !recap.Capabilities.ExplanationAvailable {
+		c.JSON(http.StatusNotFound, model.APIError{
+			Code:      model.ErrCodeExplanationNotAvailable,
+			Message:   "Explanation not available for this recap",
+			RequestID: generateRequestID(),
+			Details:   []model.ErrorDetail{{Reason: "explanation_disabled"}},
+		})
+		return
+	}
+
+	// Используем динамическое объяснение из генератора, если доступно
+	if recap.Explanation != nil {
+		c.JSON(http.StatusOK, recap.Explanation)
+		return
+	}
+
+	// Fallback: если объяснение не сгенерировано, возвращаем базовую информацию
 	explanation := model.RecapExplanation{
-		RecapID:          recap.ID,
+		RecapID:          recap.ID.String(),
 		AlgorithmVersion: recap.AlgorithmVersion,
 		ActivityHash:     recap.ActivityHash,
-		Decisions: []model.DecisionExplanation{
-			{
-				CardID:      "archetype",
-				Kind:        "archetype_role",
-				Code:        "findings_seeker",
-				Reason:      "На основе анализа активности пользователя за год",
-				RuleVersion: "archetype-rules-v1",
-				Facts: []model.RuleFact{
-					{
-						MetricCode: "favorites_count",
-						Actual:     46.0,
-						Operator:   "gte",
-						Threshold:  30.0,
-						Matched:    true,
-					},
-				},
-			},
-		},
+		Decisions:        []model.DecisionExplanation{},
 	}
+	
 	c.JSON(http.StatusOK, explanation)
 }
 
@@ -139,56 +140,28 @@ func (h *Handler) GetShareCard(c *gin.Context) {
 		return
 	}
 
-	// Собираем публичные достижения из карточек
-	var shareAchievements []model.ShareAchievement
-	for _, card := range recap.Cards {
-		if card.Type == "achievements" {
-			if items, ok := card.Data["items"].([]interface{}); ok {
-				for _, item := range items {
-					if achMap, ok := item.(map[string]interface{}); ok {
-						code, _ := achMap["code"].(string)
-						title, _ := achMap["title"].(string)
-						level, _ := achMap["level"].(string)
-						icon, _ := achMap["icon"].(string)
-						shareAchievements = append(shareAchievements, model.ShareAchievement{
-							Code:  code,
-							Title: title,
-							Level: level,
-							Icon:  icon,
-						})
-					}
-				}
-			}
-		}
+	// Проверяем, доступен ли share
+	if !recap.Capabilities.ShareAvailable {
+		c.JSON(http.StatusNotFound, model.APIError{
+			Code:      model.ErrCodeShareNotAvailable,
+			Message:   "Share not available for this recap",
+			RequestID: generateRequestID(),
+			Details:   []model.ErrorDetail{{Reason: "share_disabled"}},
+		})
+		return
 	}
 
-	// Если нет достижений, добавим заглушку
-	if len(shareAchievements) == 0 {
-		shareAchievements = []model.ShareAchievement{
-			{Code: "first_step", Title: "Первый шаг", Level: "newcomer", Icon: "👁"},
-		}
+	// Используем динамический share из генератора, если доступен
+	if recap.Share != nil {
+		c.JSON(http.StatusOK, recap.Share)
+		return
 	}
 
-	facts := []model.ShareFact{
-		{Kind: "main_district", Label: "Главный район", Value: recap.Theme.MainDistrict.Title},
-		{Kind: "active_days", Label: "Дней активности", Value: "84"},
-	}
-
-	shareCard := model.ShareCard{
-		SchemaVersion: "2.0",
-		RecapID:       recap.ID,
-		ProfileName:   recap.Profile.Name,
-		Year:          recap.Year,
-		Title:         recap.SummaryTitle,
-		Subtitle:      recap.SummaryText,
-		MainDistrict:  recap.Theme.MainDistrict,
-		Facts:         facts,
-		Achievements:  shareAchievements,
-		Visual: model.ShareVisual{
-			Theme:  "city",
-			Colors: []string{"#7C3AED", "#F3E8FF"},
-		},
-	}
-
-	c.JSON(http.StatusOK, shareCard)
+	// Fallback: если share не сгенерирован, возвращаем ошибку
+	c.JSON(http.StatusNotFound, model.APIError{
+		Code:      model.ErrCodeShareNotAvailable,
+		Message:   "Share not available for this recap",
+		RequestID: generateRequestID(),
+		Details:   []model.ErrorDetail{{Reason: "share_not_generated"}},
+	})
 }

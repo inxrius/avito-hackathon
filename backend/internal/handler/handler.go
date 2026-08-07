@@ -3,7 +3,7 @@ package handler
 import (
 	"github.com/gin-gonic/gin"
 	"github.com/google/uuid"
-	"github.com/inxrius/avito-hackathon/internal/service"
+	"recap-personalization/internal/service"
 )
 
 // Handler — основной обработчик HTTP-запросов
