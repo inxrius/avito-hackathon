@@ -1,7 +1,7 @@
-.PHONY: fmt test vet race check example
+.PHONY: fmt test vet race check run example
 
 fmt:
-	gofmt -w ./cmd ./internal
+	gofmt -w ./cmd ./internal ./pkg
 
 test:
 	go test ./...
@@ -12,7 +12,10 @@ vet:
 race:
 	go test -race ./...
 
-check: vet test race
+check: vet test
+
+run:
+	go run ./cmd/server
 
 example:
 	go run ./cmd/example

@@ -20,8 +20,8 @@ func BuildTheme(verticalCode string, registry recap.Registry) (recap.RecapTheme,
 }
 
 func BuildCards(year int, metrics recap.Metrics, geography recap.Geography, archetype recap.ArchetypeDecision,
-								topAchievements []recap.AchievementDecision, totalAchievements int, narrative recap.Narrative,
-								capabilities recap.Capabilities, registry recap.Registry) ([]recap.RecapCard, error) {
+	topAchievements []recap.AchievementDecision, totalAchievements int, narrative recap.Narrative,
+	capabilities recap.Capabilities, registry recap.Registry) ([]recap.RecapCard, error) {
 	vertical, ok := registry.Verticals[recap.VerticalCode(geography.MainVerticalCode)]
 	if !ok {
 		return nil, &recap.ConfigError{Code: "missing_vertical_registry", Message: geography.MainVerticalCode}

@@ -1,71 +1,95 @@
 package repository
 
 import (
+	"context"
+	"database/sql"
+	"errors"
+
 	"recap-personalization/internal/model"
 )
 
-// GetProfiles — возвращает список профилей с доступными годами
-func (r *Repository) GetProfiles() ([]model.ProfileSummary, error) {
-	query := `SELECT id, name, description, avatar_url FROM profiles ORDER BY name`
-	rows, err := r.DB.DB.Query(query)
+var ErrProfileNotFound = errors.New("profile_not_found")
+
+func (r *Repository) GetProfiles(ctx context.Context) ([]model.ProfileSummary, error) {
+	rows, err := r.DB.DB.QueryContext(ctx, `
+		SELECT id, name, description, avatar_url
+		FROM profiles
+		ORDER BY name
+	`)
 	if err != nil {
 		return nil, err
 	}
 	defer rows.Close()
 
-	var profiles []model.ProfileSummary
+	profiles := make([]model.ProfileSummary, 0)
 	for rows.Next() {
-		var p model.ProfileSummary
-		if err := rows.Scan(&p.ID, &p.Name, &p.Description, &p.AvatarURL); err != nil {
+		var profile model.ProfileSummary
+		if err := rows.Scan(&profile.ID, &profile.Name, &profile.Description, &profile.AvatarURL); err != nil {
 			return nil, err
 		}
-		yearsQuery := `SELECT year FROM profile_available_years WHERE profile_id = $1 ORDER BY year`
-		yearRows, err := r.DB.DB.Query(yearsQuery, p.ID)
+		years, err := r.getAvailableYears(ctx, profile.ID.String())
 		if err != nil {
 			return nil, err
 		}
-		var years []int
-		for yearRows.Next() {
-			var y int
-			if err := yearRows.Scan(&y); err != nil {
-				yearRows.Close()
-				return nil, err
-			}
-			years = append(years, y)
-		}
-		yearRows.Close()
-		p.AvailableYears = years
-		profiles = append(profiles, p)
+		profile.AvailableYears = years
+		profiles = append(profiles, profile)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
 	}
 	return profiles, nil
 }
 
-// GetProfileByID — возвращает полный профиль
-func (r *Repository) GetProfileByID(id string) (*model.Profile, error) {
-	query := `
-		SELECT id, name, description, avatar_url
-		FROM profiles WHERE id = $1
-	`
-	var p model.Profile
-	err := r.DB.DB.QueryRow(query, id).Scan(
-		&p.ID, &p.Name, &p.Description, &p.AvatarURL,
+func (r *Repository) GetProfileByID(ctx context.Context, id string) (*model.Profile, error) {
+	var profile model.Profile
+	err := r.DB.DB.QueryRowContext(ctx, `
+		SELECT id, name, description, avatar_url, scenario
+		FROM profiles
+		WHERE id = $1
+	`, id).Scan(
+		&profile.ID,
+		&profile.Name,
+		&profile.Description,
+		&profile.AvatarURL,
+		&profile.Scenario,
 	)
+	if errors.Is(err, sql.ErrNoRows) {
+		return nil, ErrProfileNotFound
+	}
 	if err != nil {
 		return nil, err
 	}
-	rows, err := r.DB.DB.Query(`SELECT year FROM profile_available_years WHERE profile_id = $1`, id)
+
+	years, err := r.getAvailableYears(ctx, id)
+	if err != nil {
+		return nil, err
+	}
+	profile.AvailableYears = years
+	return &profile, nil
+}
+
+func (r *Repository) getAvailableYears(ctx context.Context, profileID string) ([]int, error) {
+	rows, err := r.DB.DB.QueryContext(ctx, `
+		SELECT year
+		FROM profile_available_years
+		WHERE profile_id = $1
+		ORDER BY year
+	`, profileID)
 	if err != nil {
 		return nil, err
 	}
 	defer rows.Close()
-	var years []int
+
+	years := make([]int, 0)
 	for rows.Next() {
-		var y int
-		if err := rows.Scan(&y); err != nil {
+		var year int
+		if err := rows.Scan(&year); err != nil {
 			return nil, err
 		}
-		years = append(years, y)
+		years = append(years, year)
 	}
-	p.AvailableYears = years
-	return &p, nil
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return years, nil
 }

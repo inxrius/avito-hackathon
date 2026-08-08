@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"io"
+	"log"
 	"regexp"
 	"strconv"
 	"strings"
@@ -35,11 +36,18 @@ func (s Service) Build(ctx context.Context, input Input, topAchievementTitle str
 	}
 	result, err := s.Provider.Generate(ctx, input)
 	if err != nil {
+		log.Printf("mistral narrative fallback: provider error: %v", err)
 		return fallback
 	}
 	parsed, err := parseAndValidate(result.Content, input.SafeFacts, input.Year)
-	if err != nil || strings.TrimSpace(result.Model) == "" {
-		return fallback
+	if err != nil {
+			log.Printf("mistral narrative fallback: validation error: %v", err)
+			return fallback
+	}
+
+	if strings.TrimSpace(result.Model) == "" {
+    log.Printf("mistral narrative fallback: empty model")
+    return fallback
 	}
 	model := result.Model
 	return recap.Narrative{
