@@ -1,31 +1,33 @@
 package ports
 
-// ActivityRepository — порт для работы с активностями в ClickHouse
+import (
+	"context"
+	"time"
+)
+
 type ActivityRepository interface {
-	GetActivitiesByProfileIDAndYear(profileID string, year int) ([]ActivityEvent, error)
+	GetActivitiesByProfileIDAndYear(ctx context.Context, profileID string, year int) ([]ActivityEvent, error)
 }
 
-// InteractionRepository — порт для работы с взаимодействиями в ClickHouse
 type InteractionRepository interface {
-	SaveInteraction(event InteractionEvent) error
-	GetInteractionsByRecapID(recapID string) ([]InteractionEvent, error)
+	SaveInteraction(ctx context.Context, event InteractionEvent) error
+	GetInteractionsByRecapID(ctx context.Context, recapID string) ([]InteractionEvent, error)
 }
 
-// ActivityEvent — событие активности (для ClickHouse)
 type ActivityEvent struct {
 	EventID      string
 	ProfileID    string
 	EventType    string
+	VerticalCode string
 	CategoryCode string
-	OccurredAt   int64 // Unix timestamp
+	OccurredAt   time.Time
 }
 
-// InteractionEvent — событие взаимодействия (для ClickHouse)
 type InteractionEvent struct {
 	EventID    string
 	RecapID    string
 	SessionID  string
 	EventName  string
-	OccurredAt int64 // Unix timestamp
+	OccurredAt time.Time
 	Properties map[string]interface{}
 }
