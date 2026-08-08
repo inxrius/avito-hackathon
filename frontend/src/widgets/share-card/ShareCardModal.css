@@ -1,0 +1,132 @@
+.share {
+  position: fixed;
+  inset: 0;
+  z-index: 40;
+  display: grid;
+  place-items: center;
+  padding: 24px;
+}
+
+.share__backdrop {
+  position: absolute;
+  inset: 0;
+  background: rgba(5, 7, 20, 0.78);
+  backdrop-filter: blur(4px);
+}
+
+.share__body {
+  position: relative;
+  display: grid;
+  grid-template-columns: 320px 300px;
+  gap: 20px;
+  padding: 22px;
+  background: var(--bg-panel);
+  border: 1px solid var(--stroke);
+  border-radius: var(--radius-lg);
+}
+
+/* Карточка светлая: она уходит наружу, где тёмная тема recap уже не действует. */
+.share__card {
+  padding: 22px;
+  border-radius: var(--radius-lg);
+  background: linear-gradient(160deg, var(--avito-sky), var(--avito-lavender));
+  color: #131a2e;
+}
+
+.share__kicker {
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.18em;
+  text-transform: uppercase;
+  opacity: 0.55;
+}
+
+.share__city {
+  margin-top: 6px;
+  font-size: 26px;
+  font-weight: 800;
+  letter-spacing: -0.02em;
+}
+
+.share__silhouette {
+  display: block;
+  width: 100%;
+  height: auto;
+  margin: 20px 0 18px;
+}
+
+.share__traits {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.share__trait {
+  padding: 6px 12px;
+  border-radius: 999px;
+  background: var(--avito-green);
+  color: var(--action-ink);
+  font-size: 13px;
+  font-weight: 700;
+}
+
+.share__trait--soft {
+  background: rgba(19, 26, 46, 0.1);
+  color: #131a2e;
+}
+
+.share__meta {
+  margin-top: 14px;
+  font-size: 12px;
+  opacity: 0.6;
+}
+
+.share__side {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.share__side-title {
+  margin-top: 6px;
+  font-size: 12px;
+  font-weight: 700;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--text-dim);
+}
+
+.share__list {
+  margin: 0;
+  padding-left: 18px;
+  font-size: 13px;
+  line-height: 1.7;
+  color: var(--text-muted);
+}
+
+.share__list--ok li::marker {
+  color: var(--avito-green);
+}
+
+.share__list--no li::marker {
+  color: var(--avito-red);
+}
+
+.share__note {
+  margin-top: 4px;
+  font-size: 12px;
+  line-height: 1.5;
+  color: var(--text-dim);
+}
+
+.share__copy {
+  margin-top: auto;
+}
+
+@media (max-width: 720px) {
+  .share__body {
+    grid-template-columns: 1fr;
+    max-height: 90vh;
+    overflow: auto;
+  }
+}
