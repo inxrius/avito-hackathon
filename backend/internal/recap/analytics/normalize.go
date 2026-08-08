@@ -80,5 +80,5 @@ func Normalize(profileID string, year int, events []recap.ActivityEvent) ([]reca
 
 func sameRawSignificantFields(a, b rawSignificantFields) bool {
 	return a.EventType == b.EventType && a.VerticalCode == b.VerticalCode &&
-				 a.CategoryCode == b.CategoryCode && a.OccurredAt.Equal(b.OccurredAt)
+		a.CategoryCode == b.CategoryCode && a.OccurredAt.Equal(b.OccurredAt)
 }

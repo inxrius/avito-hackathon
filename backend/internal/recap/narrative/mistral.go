@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"strings"
 	"time"
 )
 
@@ -35,7 +36,7 @@ func (p MistralHTTPProvider) Generate(ctx context.Context, input Input) (Provide
 	}
 	timeout := p.Timeout
 	if timeout <= 0 {
-		timeout = 3 * time.Second
+		timeout = 15 * time.Second
 	}
 	requestContext, cancel := context.WithTimeout(ctx, timeout)
 	defer cancel()
@@ -58,10 +59,9 @@ func (p MistralHTTPProvider) Generate(ctx context.Context, input Input) (Provide
 		"response_format": map[string]any{
 			"type": "json_schema",
 			"json_schema": map[string]any{
-				"name":        "recap_narrative",
-				"strict":      true,
-				"description": nil,
-				"schema_definition": map[string]any{
+				"name":   "recap_narrative",
+				"strict": true,
+				"schema": map[string]any{
 					"type":                 "object",
 					"additionalProperties": false,
 					"required":             []string{"summary_title", "summary_text"},
@@ -93,7 +93,7 @@ func (p MistralHTTPProvider) Generate(ctx context.Context, input Input) (Provide
 		return ProviderResult{}, err
 	}
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
-		return ProviderResult{}, fmt.Errorf("mistral status %d", resp.StatusCode)
+		return ProviderResult{}, fmt.Errorf("mistral status %d: %s", resp.StatusCode, strings.TrimSpace(string(body)))
 	}
 	var decoded struct {
 		Model   string `json:"model"`
