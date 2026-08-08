@@ -8,8 +8,8 @@ import (
 
 func (r Registry) IsZero() bool {
 	return r.Verticals == nil && r.Categories == nil && r.Roles == nil && r.Styles == nil &&
-				 r.Metrics == nil && r.MetricCardTemplates == nil && r.Achievements == nil &&
-				 r.ThemeAccents == nil && r.PublicAvatarHosts == nil
+		r.Metrics == nil && r.MetricCardTemplates == nil && r.Achievements == nil &&
+		r.ThemeAccents == nil && r.PublicAvatarHosts == nil
 }
 
 func ValidateRegistry(r Registry) error {
