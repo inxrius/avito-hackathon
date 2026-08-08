@@ -1,0 +1,41 @@
+/*
+ * Палитра Авито. Четыре брендовых цвета сняты пипеткой с логотипа
+ * в официальном PDF кейса, пастельные — с плашек-заголовков оттуда же.
+ * Ничего «похожего на глаз» здесь нет, это ровно брендбук.
+ */
+:root {
+  --avito-green: #05e061;
+  --avito-blue: #00aaff;
+  --avito-red: #ff4154;
+  --avito-purple: #9c61e7;
+
+  --avito-lavender: #e8dbf6;
+  --avito-sky: #badafb;
+
+  /* Тёмный холст: жанр recap читается на тёмном, город на нём светится.
+     Синева в подложке — производная от --avito-blue, а не нейтральный серый. */
+  --bg-deep: #0d1027;
+  --bg-canvas: #141833;
+  --bg-panel: #1b2044;
+  --bg-panel-hi: #232a55;
+
+  --stroke: #2e3768;
+  --stroke-soft: #252c57;
+
+  --text: #ffffff;
+  --text-muted: #a5a8c5;
+  --text-dim: #747a8e;
+
+  /* Единственный цвет действия на экране — зелёный.
+     Всё остальное акцентное носит смысл, а не зовёт нажать. */
+  --action: var(--avito-green);
+  --action-ink: #05221a;
+
+  --radius-sm: 8px;
+  --radius-md: 12px;
+  --radius-lg: 16px;
+
+  --font: 'Manrope', 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+
+  --ease-out: cubic-bezier(0.16, 1, 0.3, 1);
+}
