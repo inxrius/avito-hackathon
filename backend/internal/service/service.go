@@ -1,49 +1,82 @@
 package service
 
 import (
+	"context"
+	"errors"
+	"fmt"
+
 	"recap-personalization/internal/model"
-	"recap-personalization/internal/repository"
-	"recap-personalization/internal/recap/pipeline"
+	recap "recap-personalization/internal/recap"
 	"recap-personalization/internal/recap/ports"
+	"recap-personalization/internal/repository"
 )
 
-// Service — объединяет все бизнес-сервисы
+var (
+	ErrYearNotAvailable           = errors.New("year_not_available")
+	ErrActivitySourceMissing      = errors.New("activity_source_missing")
+	ErrInteractionSinkMissing     = errors.New("interaction_sink_missing")
+	ErrActivitySourceUnavailable  = errors.New("activity_source_unavailable")
+	ErrInteractionSinkUnavailable = errors.New("interaction_sink_unavailable")
+)
+
 type Service struct {
-	repo              *repository.Repository
-	recapGenerator    *pipeline.Service
-	clickHouseActivities ports.ActivityRepository
+	profiles               repository.ProfileRepository
+	recaps                 repository.RecapRepository
+	recapGenerator         recap.Generator
+	clickHouseActivities   ports.ActivityRepository
 	clickHouseInteractions ports.InteractionRepository
 }
 
-// NewService создаёт новый экземпляр Service
-func NewService(repo *repository.Repository, clickHouseActivities ports.ActivityRepository, clickHouseInteractions ports.InteractionRepository) *Service {
-	recapGen := pipeline.NewGenerator(nil)
-	recapGen.Registry.PublicAvatarHosts = map[string]struct{}{}
-	
+func NewService(
+	repo *repository.Repository,
+	clickHouseActivities ports.ActivityRepository,
+	clickHouseInteractions ports.InteractionRepository,
+	generator recap.Generator,
+) *Service {
 	return &Service{
-		repo:                   repo,
-		recapGenerator:         recapGen,
+		profiles:               repo,
+		recaps:                 repo,
+		recapGenerator:         generator,
 		clickHouseActivities:   clickHouseActivities,
 		clickHouseInteractions: clickHouseInteractions,
 	}
 }
 
-// GetProfiles возвращает список профилей
-func (s *Service) GetProfiles() ([]model.ProfileSummary, error) {
-	return s.repo.GetProfiles()
+func (s *Service) GetProfiles(ctx context.Context) ([]model.ProfileSummary, error) {
+	return s.profiles.GetProfiles(ctx)
 }
 
-// GetProfile возвращает профиль по ID
-func (s *Service) GetProfile(id string) (*model.Profile, error) {
-	return s.repo.GetProfileByID(id)
+func (s *Service) GetProfile(ctx context.Context, id string) (*model.Profile, error) {
+	return s.profiles.GetProfileByID(ctx, id)
 }
 
-// GetRecap возвращает Recap по ID
-func (s *Service) GetRecap(id string) (*model.Recap, error) {
-	return s.repo.GetRecapByID(id)
+func (s *Service) GetRecap(ctx context.Context, id string) (*model.Recap, error) {
+	return s.recaps.GetRecapByID(ctx, id)
 }
 
-// SaveInteraction сохраняет событие взаимодействия
-func (s *Service) SaveInteraction(recapID, eventType string, metadata map[string]interface{}) error {
-	return s.repo.SaveInteraction(recapID, eventType, metadata)
+func (s *Service) SaveInteraction(ctx context.Context, recapID string, request model.InteractionRequest) error {
+	if s.clickHouseInteractions == nil {
+		return ErrInteractionSinkMissing
+	}
+	err := s.clickHouseInteractions.SaveInteraction(ctx, ports.InteractionEvent{
+		EventID:    request.EventID.String(),
+		RecapID:    recapID,
+		SessionID:  request.SessionID.String(),
+		EventName:  request.EventName,
+		OccurredAt: request.OccurredAt.UTC(),
+		Properties: request.Properties,
+	})
+	if err != nil {
+		return fmt.Errorf("%w: %v", ErrInteractionSinkUnavailable, err)
+	}
+	return nil
+}
+
+func containsYear(values []int, year int) bool {
+	for _, value := range values {
+		if value == year {
+			return true
+		}
+	}
+	return false
 }

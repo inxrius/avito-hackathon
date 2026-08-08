@@ -1,380 +1,769 @@
 package repository
 
 import (
+	"context"
 	"database/sql"
 	"encoding/json"
+	"errors"
 	"fmt"
 
+	"github.com/lib/pq"
 	"recap-personalization/internal/model"
+	recap "recap-personalization/internal/recap"
 )
 
-// GetRecapByProfileAndYear — проверяет существование recap для пары (profile, year)
-func (r *Repository) GetRecapByProfileAndYear(profileID string, year int) (*model.Recap, error) {
-	query := `
-		SELECT id, profile_id, status, year, algorithm_version, feature_schema_version,
-			activity_hash, generated_at, schema_version, summary_title, summary_text,
-			narrative_source, prompt_version, narrative_model, main_vertical_code, accent_token
-		FROM recaps WHERE profile_id = $1 AND year = $2 LIMIT 1
-	`
-	var recap model.Recap
-	var narrativeSource string
-	var mainVerticalCode, accentToken sql.NullString
-	err := r.DB.DB.QueryRow(query, profileID, year).Scan(
-		&recap.ID, &recap.ProfileID, &recap.Status, &recap.Year,
-		&recap.AlgorithmVersion, &recap.FeatureSchemaVersion,
-		&recap.ActivityHash, &recap.GeneratedAt, &recap.SchemaVersion,
-		&recap.SummaryTitle, &recap.SummaryText,
-		&narrativeSource, &recap.PromptVersion, &recap.NarrativeModel,
-		&mainVerticalCode, &accentToken,
+var (
+	ErrRecapNotFound      = errors.New("recap_not_found")
+	ErrRecapAlreadyExists = errors.New("recap_already_exists")
+)
+
+func (r *Repository) GetRecapByProfileAndYear(ctx context.Context, profileID string, year int) (*model.Recap, error) {
+	return r.getRecap(ctx, `
+		SELECT
+			id,
+			profile_id,
+			year,
+			profile_name,
+			profile_avatar_url,
+			schema_version,
+			algorithm_version,
+			feature_schema_version,
+			activity_hash,
+			generated_at,
+			narrative_source,
+			prompt_version,
+			narrative_model,
+			main_vertical_code,
+			main_vertical_title,
+			accent_token,
+			share_available,
+			explanation_available,
+			feedback_available,
+			summary_title,
+			summary_text
+		FROM recaps
+		WHERE profile_id = $1 AND year = $2
+	`, profileID, year)
+}
+
+func (r *Repository) GetRecapByID(ctx context.Context, id string) (*model.Recap, error) {
+	return r.getRecap(ctx, `
+		SELECT
+			id,
+			profile_id,
+			year,
+			profile_name,
+			profile_avatar_url,
+			schema_version,
+			algorithm_version,
+			feature_schema_version,
+			activity_hash,
+			generated_at,
+			narrative_source,
+			prompt_version,
+			narrative_model,
+			main_vertical_code,
+			main_vertical_title,
+			accent_token,
+			share_available,
+			explanation_available,
+			feedback_available,
+			summary_title,
+			summary_text
+		FROM recaps
+		WHERE id = $1
+	`, id)
+}
+
+func (r *Repository) getRecap(ctx context.Context, query string, args ...interface{}) (*model.Recap, error) {
+	var value model.Recap
+	var avatarURL sql.NullString
+	var narrativeModel sql.NullString
+	var accentToken sql.NullString
+	var summaryTitle string
+	var summaryText string
+
+	err := r.DB.DB.QueryRowContext(ctx, query, args...).Scan(
+		&value.ID,
+		&value.ProfileID,
+		&value.Year,
+		&value.Profile.Name,
+		&avatarURL,
+		&value.SchemaVersion,
+		&value.Generation.AlgorithmVersion,
+		&value.Generation.FeatureSchemaVersion,
+		&value.Generation.ActivityHash,
+		&value.Generation.GeneratedAt,
+		&value.Generation.Narrative.Source,
+		&value.Generation.Narrative.PromptVersion,
+		&narrativeModel,
+		&value.Theme.MainDistrict.Code,
+		&value.Theme.MainDistrict.Title,
+		&accentToken,
+		&value.Capabilities.ShareAvailable,
+		&value.Capabilities.ExplanationAvailable,
+		&value.Capabilities.FeedbackAvailable,
+		&summaryTitle,
+		&summaryText,
 	)
+	if errors.Is(err, sql.ErrNoRows) {
+		return nil, ErrRecapNotFound
+	}
 	if err != nil {
-		if err == sql.ErrNoRows {
-			return nil, nil
+		return nil, err
+	}
+
+	value.Profile.ID = value.ProfileID
+	value.Profile.AvatarURL = nullableStringPointer(avatarURL)
+	value.Generation.Narrative.Model = nullableStringPointer(narrativeModel)
+	value.Theme.Code = "city"
+	value.Theme.AccentToken = nullableStringPointer(accentToken)
+	value.Narrative = recap.Narrative{
+		SummaryTitle:  summaryTitle,
+		SummaryText:   summaryText,
+		Source:        value.Generation.Narrative.Source,
+		Model:         value.Generation.Narrative.Model,
+		PromptVersion: value.Generation.Narrative.PromptVersion,
+	}
+
+	if err := r.loadCards(ctx, &value); err != nil {
+		return nil, err
+	}
+	if value.Capabilities.ExplanationAvailable {
+		explanation, err := r.loadExplanation(ctx, &value)
+		if err != nil {
+			return nil, err
 		}
-		return nil, err
+		value.Explanation = explanation
 	}
-	recap.NarrativeSource = narrativeSource
-	if mainVerticalCode.Valid {
-		recap.MainVerticalCode = mainVerticalCode.String
+	if value.Capabilities.ShareAvailable {
+		share, err := r.loadShare(ctx, value.ID.String())
+		if err != nil {
+			return nil, err
+		}
+		value.Share = share
 	}
-	if accentToken.Valid {
-		recap.AccentToken = &accentToken.String
-	}
-	// Загружаем профиль
-	profile, err := r.GetProfileByID(profileID)
-	if err != nil {
-		return nil, err
-	}
-	recap.Profile = model.RecapProfile{
-		ID:        profile.ID,
-		Name:      profile.Name,
-		AvatarURL: profile.AvatarURL,
-	}
-	// Загружаем связанные данные (карточки, архетипы, достижения)
-	if err := r.loadRecapDetails(&recap); err != nil {
-		return nil, err
-	}
-	return &recap, nil
+	return &value, nil
 }
 
-// GetRecapByID — возвращает recap по ID
-func (r *Repository) GetRecapByID(id string) (*model.Recap, error) {
-	query := `
-		SELECT id, profile_id, status, year, algorithm_version, feature_schema_version,
-			activity_hash, generated_at, schema_version, summary_title, summary_text,
-			narrative_source, prompt_version, narrative_model, main_vertical_code, accent_token
-		FROM recaps WHERE id = $1
-	`
-	var recap model.Recap
-	var narrativeSource string
-	var mainVerticalCode, accentToken sql.NullString
-	err := r.DB.DB.QueryRow(query, id).Scan(
-		&recap.ID, &recap.ProfileID, &recap.Status, &recap.Year,
-		&recap.AlgorithmVersion, &recap.FeatureSchemaVersion,
-		&recap.ActivityHash, &recap.GeneratedAt, &recap.SchemaVersion,
-		&recap.SummaryTitle, &recap.SummaryText,
-		&narrativeSource, &recap.PromptVersion, &recap.NarrativeModel,
-		&mainVerticalCode, &accentToken,
-	)
-	if err != nil {
-		return nil, err
-	}
-	recap.NarrativeSource = narrativeSource
-	if mainVerticalCode.Valid {
-		recap.MainVerticalCode = mainVerticalCode.String
-	}
-	if accentToken.Valid {
-		recap.AccentToken = &accentToken.String
-	}
-	profile, err := r.GetProfileByID(recap.ProfileID.String())
-	if err != nil {
-		return nil, err
-	}
-	recap.Profile = model.RecapProfile{
-		ID:        profile.ID,
-		Name:      profile.Name,
-		AvatarURL: profile.AvatarURL,
-	}
-	if err := r.loadRecapDetails(&recap); err != nil {
-		return nil, err
-	}
-	return &recap, nil
-}
-
-// CreateRecap — создаёт recap со всеми связями в одной транзакции
-func (r *Repository) CreateRecap(recap *model.Recap) error {
-	tx, err := r.DB.DB.Begin()
+func (r *Repository) CreateRecap(ctx context.Context, value *model.Recap) error {
+	tx, err := r.DB.DB.BeginTx(ctx, nil)
 	if err != nil {
 		return err
 	}
 	defer tx.Rollback()
 
-	// 1. Основная запись в recaps
-	queryRecap := `
+	_, err = tx.ExecContext(ctx, `
 		INSERT INTO recaps (
-			id, profile_id, status, year, algorithm_version, feature_schema_version,
-			activity_hash, generated_at, schema_version, summary_title, summary_text,
-			narrative_source, prompt_version, narrative_model, main_vertical_code, accent_token
-		) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16)
-	`
-	_, err = tx.Exec(queryRecap,
-		recap.ID, recap.ProfileID, recap.Status, recap.Year,
-		recap.AlgorithmVersion, recap.FeatureSchemaVersion,
-		recap.ActivityHash, recap.GeneratedAt, recap.SchemaVersion,
-		recap.SummaryTitle, recap.SummaryText,
-		recap.NarrativeSource, recap.PromptVersion, recap.NarrativeModel,
-		recap.MainVerticalCode, recap.AccentToken,
+			id,
+			profile_id,
+			year,
+			profile_name,
+			profile_avatar_url,
+			schema_version,
+			algorithm_version,
+			feature_schema_version,
+			activity_hash,
+			generated_at,
+			narrative_source,
+			prompt_version,
+			narrative_model,
+			main_vertical_code,
+			main_vertical_title,
+			accent_token,
+			share_available,
+			explanation_available,
+			feedback_available,
+			summary_title,
+			summary_text
+		) VALUES (
+			$1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11,
+			$12, $13, $14, $15, $16, $17, $18, $19, $20, $21
+		)
+	`,
+		value.ID,
+		value.ProfileID,
+		value.Year,
+		value.Profile.Name,
+		value.Profile.AvatarURL,
+		value.SchemaVersion,
+		value.Generation.AlgorithmVersion,
+		value.Generation.FeatureSchemaVersion,
+		value.Generation.ActivityHash,
+		value.Generation.GeneratedAt,
+		value.Generation.Narrative.Source,
+		value.Generation.Narrative.PromptVersion,
+		value.Generation.Narrative.Model,
+		value.Theme.MainDistrict.Code,
+		value.Theme.MainDistrict.Title,
+		value.Theme.AccentToken,
+		value.Capabilities.ShareAvailable,
+		value.Capabilities.ExplanationAvailable,
+		value.Capabilities.FeedbackAvailable,
+		value.Narrative.SummaryTitle,
+		value.Narrative.SummaryText,
+	)
+	if err != nil {
+		if isUniqueViolation(err) {
+			return ErrRecapAlreadyExists
+		}
+		return err
+	}
+
+	if err := insertCards(ctx, tx, value); err != nil {
+		return err
+	}
+	if err := insertMetrics(ctx, tx, value); err != nil {
+		return err
+	}
+	if err := insertArchetype(ctx, tx, value); err != nil {
+		return err
+	}
+	if err := insertAchievements(ctx, tx, value); err != nil {
+		return err
+	}
+	if err := insertExplanation(ctx, tx, value); err != nil {
+		return err
+	}
+	if err := insertShare(ctx, tx, value); err != nil {
+		return err
+	}
+
+	return tx.Commit()
+}
+
+func insertCards(ctx context.Context, tx *sql.Tx, value *model.Recap) error {
+	for _, card := range value.Cards {
+		data, err := json.Marshal(card.Data)
+		if err != nil {
+			return fmt.Errorf("marshal recap card %s: %w", card.ID, err)
+		}
+		_, err = tx.ExecContext(ctx, `
+			INSERT INTO recap_cards (
+				recap_id,
+				card_id,
+				type,
+				position,
+				visibility,
+				eyebrow,
+				title,
+				description,
+				visual_kind,
+				visual_asset_code,
+				explainable,
+				data
+			) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
+		`,
+			value.ID,
+			card.ID,
+			card.Type,
+			card.Position,
+			card.Visibility,
+			card.Eyebrow,
+			card.Title,
+			card.Description,
+			card.Visual.Kind,
+			card.Visual.AssetCode,
+			card.Explainable,
+			data,
+		)
+		if err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func insertMetrics(ctx context.Context, tx *sql.Tx, value *model.Recap) error {
+	for _, metric := range value.Metrics {
+		_, err := tx.ExecContext(ctx, `
+			INSERT INTO recap_metrics (
+				recap_id,
+				metric_code,
+				value,
+				unit,
+				secondary_label
+			) VALUES ($1, $2, $3, $4, $5)
+		`,
+			value.ID,
+			metric.MetricCode,
+			metric.Value,
+			nullIfEmpty(string(metric.Unit)),
+			metric.SecondaryLabel,
+		)
+		if err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func insertArchetype(ctx context.Context, tx *sql.Tx, value *model.Recap) error {
+	_, err := tx.ExecContext(ctx, `
+		INSERT INTO recap_archetypes (recap_id, role_code, style_code)
+		VALUES ($1, $2, $3)
+	`, value.ID, value.Archetype.Role.Code, value.Archetype.Style.Code)
+	return err
+}
+
+func insertAchievements(ctx context.Context, tx *sql.Tx, value *model.Recap) error {
+	for position, achievement := range value.Achievements {
+		var currentValue *float64
+		convertedCurrent := float64(achievement.Value)
+		currentValue = &convertedCurrent
+
+		var nextThreshold *float64
+		if achievement.NextLevelThreshold != nil {
+			converted := float64(*achievement.NextLevelThreshold)
+			nextThreshold = &converted
+		}
+
+		_, err := tx.ExecContext(ctx, `
+			INSERT INTO recap_achievements (
+				recap_id,
+				achievement_code,
+				level,
+				position,
+				title,
+				description,
+				icon_code,
+				metric_code,
+				current_value,
+				next_level_threshold
+			) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
+		`,
+			value.ID,
+			achievement.Code,
+			achievement.Level,
+			position,
+			achievement.Title,
+			achievement.Description,
+			achievement.Icon,
+			achievement.MetricCode,
+			currentValue,
+			nextThreshold,
+		)
+		if err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func insertExplanation(ctx context.Context, tx *sql.Tx, value *model.Recap) error {
+	if value.Explanation == nil {
+		return nil
+	}
+	for position, decision := range value.Explanation.Decisions {
+		var roleCode interface{}
+		var styleCode interface{}
+		var achievementCode interface{}
+		switch decision.Kind {
+		case recap.ExplanationArchetypeRole:
+			roleCode = decision.Code
+		case recap.ExplanationArchetypeStyle:
+			styleCode = decision.Code
+		case recap.ExplanationAchievement:
+			achievementCode = decision.Code
+		default:
+			return fmt.Errorf("unsupported explanation kind %q", decision.Kind)
+		}
+
+		var explanationID string
+		err := tx.QueryRowContext(ctx, `
+			INSERT INTO recap_explanations (
+				recap_id,
+				card_id,
+				position,
+				kind,
+				role_code,
+				style_code,
+				achievement_code,
+				reason,
+				rule_version
+			) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+			RETURNING id
+		`,
+			value.ID,
+			decision.CardID,
+			position,
+			decision.Kind,
+			roleCode,
+			styleCode,
+			achievementCode,
+			decision.Reason,
+			decision.RuleVersion,
+		).Scan(&explanationID)
+		if err != nil {
+			return err
+		}
+
+		for factPosition, fact := range decision.Facts {
+			_, err = tx.ExecContext(ctx, `
+				INSERT INTO recap_rule_facts (
+					explanation_id,
+					position,
+					metric_code,
+					actual,
+					operator,
+					threshold,
+					matched
+				) VALUES ($1, $2, $3, $4, $5, $6, $7)
+			`,
+				explanationID,
+				factPosition,
+				fact.MetricCode,
+				fact.Actual,
+				fact.Operator,
+				fact.Threshold,
+				fact.Matched,
+			)
+			if err != nil {
+				return err
+			}
+		}
+	}
+	return nil
+}
+
+func insertShare(ctx context.Context, tx *sql.Tx, value *model.Recap) error {
+	if value.Share == nil {
+		return nil
+	}
+	share := value.Share
+	_, err := tx.ExecContext(ctx, `
+		INSERT INTO share_cards (
+			recap_id,
+			schema_version,
+			profile_name,
+			avatar_url,
+			year,
+			title,
+			subtitle,
+			main_vertical_code,
+			main_vertical_title,
+			visual_theme
+		) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
+	`,
+		value.ID,
+		share.SchemaVersion,
+		share.ProfileName,
+		share.AvatarURL,
+		share.Year,
+		share.Title,
+		share.Subtitle,
+		share.MainDistrict.Code,
+		share.MainDistrict.Title,
+		share.Visual.Theme,
 	)
 	if err != nil {
 		return err
 	}
 
-	// 2. Карточки
-	for _, card := range recap.Cards {
-		dataJSON, err := json.Marshal(card.Data)
+	for position, fact := range share.Facts {
+		_, err = tx.ExecContext(ctx, `
+			INSERT INTO share_facts (recap_id, position, kind, label, value)
+			VALUES ($1, $2, $3, $4, $5)
+		`, value.ID, position, fact.Kind, fact.Label, fact.Value)
 		if err != nil {
 			return err
 		}
-		queryCard := `
-			INSERT INTO recap_cards (
-				recap_id, card_id, type, position, visibility, eyebrow, title, description,
-				visual_kind, visual_asset_code, explainable, data
-			) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
-		`
-		_, err = tx.Exec(queryCard,
-			recap.ID, card.ID, card.Type, card.Position, card.Visibility,
-			card.Eyebrow, card.Title, card.Description,
-			card.Visual.Kind, card.Visual.AssetCode, card.Explainable, dataJSON,
+	}
+
+	for position, achievement := range share.Achievements {
+		_, err = tx.ExecContext(ctx, `
+			INSERT INTO share_achievements (
+				recap_id,
+				achievement_code,
+				position,
+				title,
+				level,
+				icon_code
+			) VALUES ($1, $2, $3, $4, $5, $6)
+		`,
+			value.ID,
+			achievement.Code,
+			position,
+			achievement.Title,
+			achievement.Level,
+			achievement.Icon,
 		)
 		if err != nil {
 			return err
 		}
 	}
-
-	// 3. Метрики (из карточек типа metric)
-	// for _, card := range recap.Cards {
-	// 	if card.Type == "metric" {
-	// 		metricCode, _ := card.Data["metric_code"].(string)
-	// 		value, _ := card.Data["value"].(float64)
-	// 		unit, _ := card.Data["unit"].(string)
-	// 		secondaryLabel, _ := card.Data["secondary_label"].(string)
-	// 		if metricCode != "" {
-	// 			queryMetric := `
-	// 				INSERT INTO recap_metrics (recap_id, metric_code, value, unit, secondary_label)
-	// 				VALUES ($1, $2, $3, $4, $5)
-	// 			`
-	// 			_, err = tx.Exec(queryMetric, recap.ID, metricCode, value, unit, secondaryLabel)
-	// 			if err != nil {
-	// 				return err
-	// 			}
-	// 		}
-	// 	}
-	// }
-
-	// 4. Архетип (из карточки типа archetype)
-	for _, card := range recap.Cards {
-		if card.Type == "archetype" {
-			roleData, ok := card.Data["role"].(map[string]interface{})
-			if !ok {
-				continue
-			}
-			styleData, ok := card.Data["style"].(map[string]interface{})
-			if !ok {
-				continue
-			}
-			roleCode, _ := roleData["code"].(string)
-			styleCode, _ := styleData["code"].(string)
-			if roleCode != "" && styleCode != "" {
-				queryArchetype := `
-					INSERT INTO recap_archetypes (recap_id, role_code, style_code)
-					VALUES ($1, $2, $3)
-				`
-				_, err = tx.Exec(queryArchetype, recap.ID, roleCode, styleCode)
-				if err != nil {
-					return err
-				}
-			}
-			break
-		}
-	}
-
-	// 5. Достижения (из карточки типа achievements)
-	for _, card := range recap.Cards {
-		if card.Type == "achievements" {
-			items, ok := card.Data["items"].([]interface{})
-			if !ok {
-				continue
-			}
-			for idx, item := range items {
-				achMap, ok := item.(map[string]interface{})
-				if !ok {
-					continue
-				}
-				ach := model.Achievement{
-					Code:        model.AchievementCode(achMap["code"].(string)),
-					Title:       achMap["title"].(string),
-					Description: achMap["description"].(string),
-					Level:       model.AchievementLevel(achMap["level"].(string)),
-					Icon:        achMap["icon"].(string),
-				}
-				if mc, ok := achMap["metric_code"].(string); ok && mc != "" {
-					ach.MetricCode = model.MetricCode(mc)
-				} else {
-					ach.MetricCode = ""
-				}
-				if cv, ok := achMap["current_value"].(float64); ok {
-					ach.CurrentValue = &cv
-				}
-				if nt, ok := achMap["next_level_threshold"].(float64); ok {
-					ach.NextLevelThreshold = &nt
-				}
-				pos := idx + 1
-				queryAchievement := `
-					INSERT INTO recap_achievements (
-						recap_id, achievement_code, level, position, title, description, icon_code,
-						metric_code, current_value, next_level_threshold
-					) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
-				`
-				_, err = tx.Exec(queryAchievement,
-					recap.ID, string(ach.Code), string(ach.Level), pos, ach.Title, ach.Description, ach.Icon,
-					string(ach.MetricCode), ach.CurrentValue, ach.NextLevelThreshold,
-				)
-				if err != nil {
-					return err
-				}
-			}
-			break
-		}
-	}
-
-	// TODO: сохранение share_card, если нужно (пока пропустим)
-
-	return tx.Commit()
+	return nil
 }
 
-// loadRecapDetails — загружает связанные данные (карточки, архетипы, достижения) для заполнения Recap
-func (r *Repository) loadRecapDetails(recap *model.Recap) error {
-	// Карточки
-	rows, err := r.DB.DB.Query(`
-		SELECT card_id, type, position, visibility, eyebrow, title, description,
-			visual_kind, visual_asset_code, explainable, data
-		FROM recap_cards WHERE recap_id = $1 ORDER BY position
-	`, recap.ID)
+func (r *Repository) loadCards(ctx context.Context, value *model.Recap) error {
+	rows, err := r.DB.DB.QueryContext(ctx, `
+		SELECT
+			card_id,
+			type,
+			position,
+			visibility,
+			eyebrow,
+			title,
+			description,
+			visual_kind,
+			visual_asset_code,
+			explainable,
+			data
+		FROM recap_cards
+		WHERE recap_id = $1
+		ORDER BY position
+	`, value.ID)
 	if err != nil {
 		return err
 	}
 	defer rows.Close()
+
+	cards := make([]model.RecapCard, 0)
 	for rows.Next() {
 		var card model.RecapCard
-		var visualKind, visualAssetCode, description sql.NullString
-		var visibility string
-		var explainable bool
+		var eyebrow sql.NullString
+		var description sql.NullString
+		var assetCode sql.NullString
 		var data []byte
-		err := rows.Scan(
-			&card.ID, &card.Type, &card.Position, &visibility, &card.Eyebrow,
-			&card.Title, &description, &visualKind, &visualAssetCode,
-			&explainable, &data,
-		)
-		if err != nil {
+		if err := rows.Scan(
+			&card.ID,
+			&card.Type,
+			&card.Position,
+			&card.Visibility,
+			&eyebrow,
+			&card.Title,
+			&description,
+			&card.Visual.Kind,
+			&assetCode,
+			&card.Explainable,
+			&data,
+		); err != nil {
 			return err
 		}
-		card.Visibility = visibility
-		card.Explainable = explainable
-		if visualKind.Valid {
-			card.Visual.Kind = visualKind.String
+		card.Eyebrow = nullableStringPointer(eyebrow)
+		card.Description = nullableStringPointer(description)
+		card.Visual.AssetCode = nullableStringPointer(assetCode)
+		if err := json.Unmarshal(data, &card.Data); err != nil {
+			return fmt.Errorf("unmarshal recap card %s: %w", card.ID, err)
 		}
-		if visualAssetCode.Valid {
-			card.Visual.AssetCode = &visualAssetCode.String
-		}
-		if description.Valid {
-			card.Description = &description.String
-		}
-		if len(data) > 0 {
-			var dataMap map[string]interface{}
-			if err := json.Unmarshal(data, &dataMap); err != nil {
-				return err
-			}
-			card.Data = dataMap
-		} else {
-			card.Data = make(map[string]interface{})
-		}
-		recap.Cards = append(recap.Cards, card)
+		cards = append(cards, card)
 	}
-
-	// Архетип
-	var roleCode, styleCode string
-	err = r.DB.DB.QueryRow(`
-		SELECT role_code, style_code FROM recap_archetypes WHERE recap_id = $1
-	`, recap.ID).Scan(&roleCode, &styleCode)
-	if err != nil && err != sql.ErrNoRows {
+	if err := rows.Err(); err != nil {
 		return err
 	}
-	if err == nil {
-		// Загружаем названия
-		var roleTitle, styleTitle string
-		_ = r.DB.DB.QueryRow(`SELECT title FROM archetype_roles WHERE code = $1`, roleCode).Scan(&roleTitle)
-		_ = r.DB.DB.QueryRow(`SELECT title FROM archetype_styles WHERE code = $1`, styleCode).Scan(&styleTitle)
-		// Ищем карточку archetype и вставляем данные
-		for i, card := range recap.Cards {
-			if card.Type == "archetype" {
-				recap.Cards[i].Data = map[string]interface{}{
-					"role":  model.ArchetypeRole{Code: model.ArchetypeRoleCode(roleCode), Title: roleTitle},
-					"style": model.ArchetypeStyle{Code: model.ArchetypeStyleCode(styleCode), Title: styleTitle},
-				}
-				break
-			}
-		}
-	}
-
-	// Достижения
-	rows2, err := r.DB.DB.Query(`
-		SELECT achievement_code, level, position, title, description, icon_code,
-			metric_code, current_value, next_level_threshold
-		FROM recap_achievements WHERE recap_id = $1 ORDER BY position
-	`, recap.ID)
-	if err != nil {
-		return err
-	}
-	defer rows2.Close()
-	var achievements []model.Achievement
-	for rows2.Next() {
-		var ach model.Achievement
-		var metricCode, currentValue, nextThreshold sql.NullString
-		var level string
-		var position int
-		err := rows2.Scan(
-			&ach.Code, &level, &position, &ach.Title, &ach.Description,
-			&ach.Icon, &metricCode, &currentValue, &nextThreshold,
-		)
-		if err != nil {
-			return err
-		}
-		ach.Level = model.AchievementLevel(level)
-		if metricCode.Valid {
-			ach.MetricCode = model.MetricCode(metricCode.String)
-		}
-		if currentValue.Valid {
-			var v float64
-			fmt.Sscan(currentValue.String, &v)
-			ach.CurrentValue = &v
-		}
-		if nextThreshold.Valid {
-			var v float64
-			fmt.Sscan(nextThreshold.String, &v)
-			ach.NextLevelThreshold = &v
-		}
-		achievements = append(achievements, ach)
-	}
-	// Ищем карточку achievements
-	for i, card := range recap.Cards {
-		if card.Type == "achievements" {
-			recap.Cards[i].Data = map[string]interface{}{
-				"items":       achievements,
-				"total_count": len(achievements),
-			}
-			break
-		}
-	}
-
+	value.Cards = cards
 	return nil
+}
+
+func (r *Repository) loadExplanation(ctx context.Context, value *model.Recap) (*model.RecapExplanation, error) {
+	rows, err := r.DB.DB.QueryContext(ctx, `
+		SELECT
+			id,
+			card_id,
+			kind,
+			COALESCE(role_code, style_code, achievement_code),
+			reason,
+			rule_version
+		FROM recap_explanations
+		WHERE recap_id = $1
+		ORDER BY position
+	`, value.ID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	decisions := make([]model.DecisionExplanation, 0)
+	for rows.Next() {
+		var explanationID string
+		var decision model.DecisionExplanation
+		if err := rows.Scan(
+			&explanationID,
+			&decision.CardID,
+			&decision.Kind,
+			&decision.Code,
+			&decision.Reason,
+			&decision.RuleVersion,
+		); err != nil {
+			return nil, err
+		}
+
+		facts, err := r.loadRuleFacts(ctx, explanationID)
+		if err != nil {
+			return nil, err
+		}
+		decision.Facts = facts
+		decisions = append(decisions, decision)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	if len(decisions) == 0 {
+		return nil, nil
+	}
+	return &model.RecapExplanation{
+		RecapID:          value.ID.String(),
+		AlgorithmVersion: value.Generation.AlgorithmVersion,
+		ActivityHash:     value.Generation.ActivityHash,
+		Decisions:        decisions,
+	}, nil
+}
+
+func (r *Repository) loadRuleFacts(ctx context.Context, explanationID string) ([]model.RuleFact, error) {
+	rows, err := r.DB.DB.QueryContext(ctx, `
+		SELECT metric_code, actual, operator, threshold, matched
+		FROM recap_rule_facts
+		WHERE explanation_id = $1
+		ORDER BY position
+	`, explanationID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	facts := make([]model.RuleFact, 0)
+	for rows.Next() {
+		var fact model.RuleFact
+		if err := rows.Scan(
+			&fact.MetricCode,
+			&fact.Actual,
+			&fact.Operator,
+			&fact.Threshold,
+			&fact.Matched,
+		); err != nil {
+			return nil, err
+		}
+		facts = append(facts, fact)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return facts, nil
+}
+
+func (r *Repository) loadShare(ctx context.Context, recapID string) (*model.ShareCard, error) {
+	var share model.ShareCard
+	var avatarURL sql.NullString
+	err := r.DB.DB.QueryRowContext(ctx, `
+		SELECT
+			schema_version,
+			profile_name,
+			avatar_url,
+			year,
+			title,
+			subtitle,
+			main_vertical_code,
+			main_vertical_title,
+			visual_theme
+		FROM share_cards
+		WHERE recap_id = $1
+	`, recapID).Scan(
+		&share.SchemaVersion,
+		&share.ProfileName,
+		&avatarURL,
+		&share.Year,
+		&share.Title,
+		&share.Subtitle,
+		&share.MainDistrict.Code,
+		&share.MainDistrict.Title,
+		&share.Visual.Theme,
+	)
+	if errors.Is(err, sql.ErrNoRows) {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, err
+	}
+	share.RecapID = recapID
+	share.AvatarURL = nullableStringPointer(avatarURL)
+
+	facts, err := r.loadShareFacts(ctx, recapID)
+	if err != nil {
+		return nil, err
+	}
+	share.Facts = facts
+
+	achievements, err := r.loadShareAchievements(ctx, recapID)
+	if err != nil {
+		return nil, err
+	}
+	share.Achievements = achievements
+	return &share, nil
+}
+
+func (r *Repository) loadShareFacts(ctx context.Context, recapID string) ([]model.ShareFact, error) {
+	rows, err := r.DB.DB.QueryContext(ctx, `
+		SELECT kind, label, value
+		FROM share_facts
+		WHERE recap_id = $1
+		ORDER BY position
+	`, recapID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	facts := make([]model.ShareFact, 0)
+	for rows.Next() {
+		var fact model.ShareFact
+		if err := rows.Scan(&fact.Kind, &fact.Label, &fact.Value); err != nil {
+			return nil, err
+		}
+		facts = append(facts, fact)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return facts, nil
+}
+
+func (r *Repository) loadShareAchievements(ctx context.Context, recapID string) ([]model.ShareAchievement, error) {
+	rows, err := r.DB.DB.QueryContext(ctx, `
+		SELECT achievement_code, title, level, icon_code
+		FROM share_achievements
+		WHERE recap_id = $1
+		ORDER BY position
+	`, recapID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	achievements := make([]model.ShareAchievement, 0)
+	for rows.Next() {
+		var achievement model.ShareAchievement
+		if err := rows.Scan(
+			&achievement.Code,
+			&achievement.Title,
+			&achievement.Level,
+			&achievement.Icon,
+		); err != nil {
+			return nil, err
+		}
+		achievements = append(achievements, achievement)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return achievements, nil
+}
+
+func nullableStringPointer(value sql.NullString) *string {
+	if !value.Valid {
+		return nil
+	}
+	result := value.String
+	return &result
+}
+
+func nullIfEmpty(value string) interface{} {
+	if value == "" {
+		return nil
+	}
+	return value
+}
+
+func isUniqueViolation(err error) bool {
+	var pqError *pq.Error
+	return errors.As(err, &pqError) && pqError.Code == "23505"
 }
