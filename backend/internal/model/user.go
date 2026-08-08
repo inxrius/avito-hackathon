@@ -1,32 +1,14 @@
 package model
 
-import (
-	"github.com/google/uuid"
-)
+import "github.com/google/uuid"
 
-// Profile — полная информация о пользователе (возвращается по /profiles/{id})
 type Profile struct {
 	ID             uuid.UUID `json:"id"`
 	Name           string    `json:"name"`
 	Description    string    `json:"description"`
-	AvatarURL      *string   `json:"avatar_url,omitempty"` // nullable according to OpenAPI spec
-	Scenario       string    `json:"-"`                     // внутреннее поле, не экспонируется в API
-	AvailableYears []int     `json:"available_years"`      // годы, за которые доступны итоги
-}
-
-// ProfileSummary — сокращённая версия для списка (/profiles)
-type ProfileSummary struct {
-	ID             uuid.UUID `json:"id"`
-	Name           string    `json:"name"`
-	Description    string    `json:"description"`
-	AvatarURL      *string   `json:"avatar_url,omitempty"` // nullable according to OpenAPI spec
-	Scenario       string    `json:"-"`                     // внутреннее поле, не экспонируется в API
+	AvatarURL      *string   `json:"avatar_url,omitempty"`
+	Scenario       string    `json:"-"`
 	AvailableYears []int     `json:"available_years"`
 }
 
-// ProfileList — используется для ответа /profiles (массив ProfileSummary)
-// В OpenAPI мы возвращаем массив напрямую, но для удобства можно использовать обёртку
-// или возвращать []ProfileSummary. Оставлю здесь на случай, если понадобится.
-type ProfileList struct {
-	Profiles []ProfileSummary `json:"profiles"`
-}
+type ProfileSummary = Profile
