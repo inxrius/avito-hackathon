@@ -1,4 +1,9 @@
-import { OTHER_DISTRICT, type BrandTone, type District } from '@/shared/types/recap';
+import {
+  OTHER_DISTRICT,
+  type BadgeGroup,
+  type BrandTone,
+  type District,
+} from '@/shared/types/recap';
 
 /**
  * Девять районов на четырёх брендовых цветах. Каждый тон разведён на три
@@ -25,6 +30,17 @@ export function districtColor(district: Pick<District, 'id' | 'tone' | 'shade'>)
   if (district.id === OTHER_DISTRICT) return UNKNOWN_DISTRICT_COLOR;
   return toneColor(district.tone, district.shade);
 }
+
+/**
+ * Цвет уровня звания. Один и тот же на экране глав и в панели итогов,
+ * чтобы «Эксперт» везде выглядел одинаково.
+ */
+export const LEVEL_TONE: Record<BadgeGroup, string> = {
+  newcomer: 'var(--avito-blue)',
+  local: 'var(--avito-purple)',
+  expert: 'var(--avito-green)',
+  guru: 'var(--avito-red)',
+};
 
 /** Осветление/затемнение для граней изометрических блоков. */
 export function shift(hex: string, amount: number): string {

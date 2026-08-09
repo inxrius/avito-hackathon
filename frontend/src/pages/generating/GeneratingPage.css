@@ -83,3 +83,9 @@
   background: var(--avito-green);
   transition: width 0.4s var(--ease-out);
 }
+
+.generating__actions {
+  display: flex;
+  gap: 12px;
+  flex-wrap: wrap;
+}

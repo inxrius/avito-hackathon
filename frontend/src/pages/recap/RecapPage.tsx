@@ -3,8 +3,10 @@ import { useNavigate, useParams } from 'react-router-dom';
 import { CityCanvas } from '@/entities/city/CityCanvas';
 import { cacheRecap, getCachedRecap } from '@/shared/api/cache';
 import { loadExplanation, loadRecap } from '@/shared/api/recap';
+import { describeFailure, type FailureView } from '@/shared/api/errors';
 import { ShareCardModal } from '@/widgets/share-card/ShareCardModal';
 import { DISTRICTS, pluralize } from '@/shared/lib/plural';
+import { LEVEL_TONE } from '@/shared/lib/palette';
 import { BadgesPanel } from './components/BadgesPanel';
 import { DistrictLegend } from './components/DistrictLegend';
 import { TraitsPanel } from './components/TraitsPanel';
@@ -17,12 +19,12 @@ export function RecapPage() {
   const navigate = useNavigate();
 
   const [recap, setRecap] = useState<Recap | null>(() => getCachedRecap(recapId) ?? null);
-  const [failed, setFailed] = useState(false);
+  const [failure, setFailure] = useState<FailureView | null>(null);
   const [step, setStep] = useState(0);
   const [focus, setFocus] = useState<DistrictId | null>(null);
   const [shareOpen, setShareOpen] = useState(false);
-  // Ref, а не state: это защёлка «уже запросили», перерисовывать от неё нечего.
-  const explained = useRef(false);
+  // Ref, а не state: защёлка «для какого recap уже запросили обоснования».
+  const explained = useRef<string | null>(null);
 
   // Прямая ссылка на итоги: snapshot неизменяем, поэтому просто перечитываем его.
   useEffect(() => {
@@ -35,8 +37,8 @@ export function RecapPage() {
         cacheRecap(value);
         setRecap(value);
       })
-      .catch(() => {
-        if (active) setFailed(true);
+      .catch((cause: unknown) => {
+        if (active) setFailure(describeFailure(cause));
       });
 
     return () => {
@@ -62,28 +64,37 @@ export function RecapPage() {
     return () => window.removeEventListener('keydown', onKey);
   }, [back, next]);
 
-  // Обоснования — отдельный запрос, поэтому тянем их только когда дошли до финала.
+  /**
+   * Обоснования — отдельный запрос. Тянем один раз сразу после recap: они нужны
+   * уже на главе с ролью, а не только на финале.
+   *
+   * Защёлка по recapId, а не флаг + отмена в cleanup: в StrictMode эффект
+   * вызывается дважды, и отмена по cleanup выбросила бы единственный ответ.
+   * Применить результат к размонтированному компоненту безопасно.
+   */
   useEffect(() => {
-    if (!recap || !isFinal || explained.current || !recap.capabilities.explanationAvailable) return;
-    let active = true;
-    explained.current = true;
+    if (!recap || !recap.capabilities.explanationAvailable) return;
+    if (explained.current === recap.recapId) return;
+    explained.current = recap.recapId;
 
     loadExplanation(recap)
       .then((value) => {
-        if (!active) return;
         cacheRecap(value);
         setRecap(value);
       })
       .catch(() => undefined);
+  }, [recap]);
 
-    return () => {
-      active = false;
-    };
-  }, [isFinal, recap]);
-
+  /**
+   * До главы про район город показан только главным кварталом, с неё —
+   * целиком: именно там бэкенд впервые сообщает долю, то есть размер остального.
+   */
   const revealed = useMemo(() => {
     if (!recap) return new Set<DistrictId>();
-    if (isFinal) return new Set(recap.districts.map((d) => d.id));
+    const districtStep = recap.chapters.findIndex((item) => item.kind === 'district');
+    if (isFinal || (districtStep >= 0 && step >= districtStep)) {
+      return new Set(recap.districts.map((d) => d.id));
+    }
     const ids = recap.chapters
       .slice(0, step + 1)
       .map((chapter) => chapter.districtId)
@@ -91,15 +102,18 @@ export function RecapPage() {
     return new Set(ids);
   }, [isFinal, recap, step]);
 
-  if (failed) {
+  if (failure) {
     return (
       <main className="recap recap--message">
         <div>
-          <p className="kicker">Итоги не найдены</p>
-          <h1 className="recap__chapter-title">Такого города нет</h1>
-          <button type="button" className="btn btn--primary" onClick={() => void navigate('/')}>
-            К выбору профиля
-          </button>
+          <p className="kicker">Итоги недоступны</p>
+          <h1 className="recap__chapter-title">{failure.title}</h1>
+          {failure.hint && <p className="recap__narrative">{failure.hint}</p>}
+          <div className="recap__controls">
+            <button type="button" className="btn btn--primary" onClick={() => void navigate('/')}>
+              К выбору профиля
+            </button>
+          </div>
         </div>
       </main>
     );
@@ -114,9 +128,6 @@ export function RecapPage() {
   }
 
   const chapter = recap.chapters[step];
-  const chapterBadge = chapter.badgeId
-    ? recap.badges.find((badge) => badge.id === chapter.badgeId)
-    : undefined;
 
   return (
     <main className="recap">
@@ -155,9 +166,12 @@ export function RecapPage() {
             <>
               <h1 className="recap__city-name">{recap.cityName}</h1>
               <p className="recap__totals">
-                {recap.totals.activeDays !== undefined && `${recap.totals.activeDays} активных дней · `}
+                {recap.totals.activeDays !== undefined &&
+                  `${recap.totals.activeDays} активных дней · `}
                 {pluralize(recap.totals.districts, DISTRICTS)}
               </p>
+              {/* Главный персональный итог: ровно то, что написал бэкенд. */}
+              {recap.summaryText && <p className="recap__summary">{recap.summaryText}</p>}
             </>
           ) : (
             <>
@@ -168,12 +182,40 @@ export function RecapPage() {
                   <span className="recap__stat-label">{chapter.stat.label}</span>
                 </p>
               )}
-              {chapter.narrative && <p className="recap__narrative">{chapter.narrative}</p>}
-              {chapterBadge && (
-                <p className="recap__badge-toast">
-                  <span className="recap__badge-mark" aria-hidden="true" />
-                  Новое звание: <b>{chapterBadge.title}</b>
+              {chapter.narrative && (
+                <p
+                  className={
+                    chapter.kind === 'summary' ? 'recap__narrative recap__summary' : 'recap__narrative'
+                  }
+                >
+                  {chapter.narrative}
                 </p>
+              )}
+
+              {/* Роль и стиль: заголовок карточки уже содержит роль, стиль — в описании.
+                  Ниже добавляем обоснования из /explanation, если они разрешены. */}
+              {chapter.kind === 'archetype' && recap.capabilities.explanationAvailable && (
+                <div className="recap__reasons">
+                  {recap.role.reason && <p className="recap__reason">{recap.role.reason}</p>}
+                  {recap.style.reason && <p className="recap__reason">{recap.style.reason}</p>}
+                </div>
+              )}
+
+              {/* Все звания из карточки, а не только первое. */}
+              {chapter.kind === 'achievements' && recap.badges.length > 0 && (
+                <ul className="recap__awards">
+                  {recap.badges.map((badge) => (
+                    <li key={badge.id} className="recap__award">
+                      <span
+                        className="recap__award-dot"
+                        style={{ background: LEVEL_TONE[badge.group] }}
+                        aria-hidden="true"
+                      />
+                      <span className="recap__award-title">{badge.title}</span>
+                      <span className="recap__award-level">{badge.groupTitle}</span>
+                    </li>
+                  ))}
+                </ul>
               )}
             </>
           )}

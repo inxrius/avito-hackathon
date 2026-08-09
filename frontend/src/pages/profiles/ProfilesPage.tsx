@@ -1,16 +1,16 @@
 import { useEffect, useState, type CSSProperties } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { fetchProfiles } from '@/shared/api/recap';
+import { describeFailure, type FailureView } from '@/shared/api/errors';
 import { toneColor } from '@/shared/lib/palette';
 import type { Profile } from '@/shared/types/recap';
 import './ProfilesPage.css';
 
-type LoadState = 'loading' | 'ready' | 'failed';
-
 export function ProfilesPage() {
   const navigate = useNavigate();
   const [profiles, setProfiles] = useState<Profile[]>([]);
-  const [state, setState] = useState<LoadState>('loading');
+  const [state, setState] = useState<'loading' | 'ready' | 'failed'>('loading');
+  const [failure, setFailure] = useState<FailureView | null>(null);
   const [selected, setSelected] = useState<Profile | null>(null);
 
   useEffect(() => {
@@ -22,10 +22,12 @@ export function ProfilesPage() {
         setProfiles(list);
         setState('ready');
       })
-      .catch(() => {
+      .catch((cause: unknown) => {
         // Пустой список и молча выключенная кнопка — худший из вариантов:
         // пользователь не понимает, почему ничего не происходит.
-        if (active) setState('failed');
+        if (!active) return;
+        setFailure(describeFailure(cause));
+        setState('failed');
       });
 
     return () => {
@@ -33,9 +35,11 @@ export function ProfilesPage() {
     };
   }, []);
 
+  // Год берём из профиля: хардкода нет, а без года генерировать нечего.
+  const year = selected?.availableYears[0];
+
   const start = () => {
-    if (!selected) return;
-    const year = selected.availableYears[0];
+    if (!selected || year === undefined) return;
     void navigate(`/generate/${selected.id}/${year}`);
   };
 
@@ -57,7 +61,10 @@ export function ProfilesPage() {
 
         {state === 'failed' && (
           <div className="profiles__status profiles__status--error">
-            <p>Не удалось загрузить профили — сервис недоступен.</p>
+            <p>
+              <b>{failure?.title ?? 'Не удалось загрузить профили'}</b>
+              {failure?.hint ? ` ${failure.hint}` : ''}
+            </p>
             <button
               type="button"
               className="btn btn--ghost"
@@ -84,7 +91,9 @@ export function ProfilesPage() {
                     <span className="profile-card__name">{profile.name}</span>
                     <span className="profile-card__tagline">{profile.description}</span>
                     <span className="profile-card__hint">
-                      Доступный год: {profile.availableYears.join(', ')}
+                      {profile.availableYears.length > 0
+                        ? `Доступный год: ${profile.availableYears.join(', ')}`
+                        : 'Нет годов с данными'}
                     </span>
                   </span>
                 </button>
@@ -97,7 +106,7 @@ export function ProfilesPage() {
           <button
             type="button"
             className="btn btn--primary profiles__cta"
-            disabled={!selected}
+            disabled={!selected || year === undefined}
             onClick={start}
           >
             Построить город →

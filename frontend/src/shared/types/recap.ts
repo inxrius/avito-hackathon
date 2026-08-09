@@ -46,14 +46,24 @@ export interface Badge {
   facts: string[];
 }
 
+/** Тип карточки бэкенда — определяет, чем глава наполняется на экране. */
+export type ChapterKind =
+  | 'intro'
+  | 'metric'
+  | 'district'
+  | 'archetype'
+  | 'achievements'
+  | 'summary'
+  | 'final';
+
 export interface Chapter {
   index: number;
+  kind: ChapterKind;
   title: string;
   /** Есть не у всех карточек: у intro и archetype крупной цифры нет. */
   stat?: { value: string; label: string };
   narrative: string;
   districtId?: DistrictId;
-  badgeId?: string;
 }
 
 export interface Unfinished {
@@ -79,6 +89,8 @@ export interface Recap {
   seed: number;
   /** Презентационное имя, бэкенд его не отдаёт. */
   cityName: string;
+  /** Готовая персональная суммаризация из summary-карточки. Свою не пишем. */
+  summaryText?: string;
   totals: {
     activeDays?: number;
     districts: number;

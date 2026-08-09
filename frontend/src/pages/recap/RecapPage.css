@@ -110,6 +110,77 @@
   color: var(--text-muted);
 }
 
+/* Суммаризация от бэкенда — единственный длинный текст на экране. */
+.recap__summary {
+  max-width: 680px;
+  margin: 18px auto 0;
+  font-size: 17px;
+  line-height: 1.6;
+  color: var(--text);
+}
+
+.recap__reasons {
+  max-width: 620px;
+  margin: 18px auto 0;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.recap__reason {
+  font-size: 14px;
+  line-height: 1.55;
+  color: var(--text-muted);
+}
+
+.recap__awards {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  max-width: 460px;
+  margin: 22px auto 0;
+  padding: 0;
+  list-style: none;
+}
+
+.recap__award {
+  display: grid;
+  grid-template-columns: auto 1fr auto;
+  align-items: center;
+  gap: 12px;
+  padding: 12px 16px;
+  border: 1px solid var(--stroke-soft);
+  border-radius: var(--radius-md);
+  background: var(--bg-panel);
+  text-align: left;
+}
+
+.recap__award-dot {
+  width: 9px;
+  height: 9px;
+  border-radius: 2px;
+}
+
+.recap__award-title {
+  font-size: 16px;
+  font-weight: 700;
+}
+
+.recap__award-level {
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--text-dim);
+}
+
+.recap--message {
+  display: grid;
+  place-items: center;
+  min-height: 100vh;
+  text-align: center;
+}
+
 .recap__badge-toast {
   display: inline-flex;
   align-items: center;

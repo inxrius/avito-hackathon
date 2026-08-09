@@ -88,7 +88,9 @@ export function adaptProfiles(items: ProfileDTO[]): Profile[] {
     id: item.id,
     name: item.name,
     description: item.description,
-    availableYears: item.available_years,
+    // Пустой массив вместо undefined: экран не должен падать,
+    // если бэкенд не прислал годы для профиля.
+    availableYears: item.available_years ?? [],
     avatarUrl: item.avatar_url,
     tone: PROFILE_TONES[index % PROFILE_TONES.length],
   }));
@@ -172,6 +174,7 @@ export function adaptRecap(dto: RecapDTO): Recap {
   const chapters: Chapter[] = cards.map((card, index) => {
     const base = {
       index: index + 1,
+      kind: card.type,
       title: card.title,
       narrative: card.description ?? '',
     };
@@ -180,28 +183,32 @@ export function adaptRecap(dto: RecapDTO): Recap {
       case 'intro':
         // Город обязан существовать с первого экрана, иначе три главы подряд
         // показывают пустое поле: карточка района у бэкенда только четвёртая.
-        return { ...base, districtId: mainDistrictId };
+        return { ...base, kind: 'intro' as const, districtId: mainDistrictId };
       case 'metric':
         return {
           ...base,
+          kind: 'metric' as const,
           stat: {
             value: formatMetric(card.data.value),
             label: METRIC_LABEL[card.data.metric_code] ?? card.data.metric_code,
           },
+          // secondary_label уточняет цифру («Активность была заметна в 1 месяце»),
+          // description у метрик обычно пустое — берём то, что есть.
           narrative: card.data.secondary_label ?? base.narrative,
           districtId: mainDistrictId,
         };
       case 'district':
         return {
           ...base,
+          kind: 'district' as const,
           stat: {
             value: `${Math.round(card.data.activity_share * 100)}%`,
             label: 'года прошло в этом районе',
           },
-          districtId: OTHER_DISTRICT,
+          // Фокус на настоящем районе бэкенда. Раньше здесь стоял OTHER_DISTRICT,
+          // из-за чего подсвечивался несуществующий квартал, а реальный гас.
+          districtId: mainDistrictId,
         };
-      case 'achievements':
-        return { ...base, badgeId: badges[0]?.id };
       default:
         return base;
     }
@@ -216,6 +223,9 @@ export function adaptRecap(dto: RecapDTO): Recap {
     // Своего названия города у бэкенда нет: берём заголовок summary,
     // он сгенерирован под этого пользователя.
     cityName: summaryCard?.title ?? 'Твой город за год',
+    // Готовая персональная суммаризация. Одинаково работает и для template,
+    // и для mistral — фронт свою версию не пишет и источник не различает.
+    summaryText: summaryCard?.description ?? undefined,
     totals: {
       activeDays: activeDaysCard?.data.value,
       districts: districts.length,

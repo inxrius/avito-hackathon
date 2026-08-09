@@ -1,17 +1,10 @@
 import { useState } from 'react';
-import type { Badge, BadgeGroup } from '@/shared/types/recap';
+import { LEVEL_TONE } from '@/shared/lib/palette';
+import type { Badge } from '@/shared/types/recap';
 
 interface Props {
   badges: Badge[];
 }
-
-/** Цвет — уровень звания: чем выше, тем «теплее» акцент. */
-const GROUP_TONE: Record<BadgeGroup, string> = {
-  newcomer: 'var(--avito-blue)',
-  local: 'var(--avito-purple)',
-  expert: 'var(--avito-green)',
-  guru: 'var(--avito-red)',
-};
 
 export function BadgesPanel({ badges }: Props) {
   const [openId, setOpenId] = useState<string | null>(null);
@@ -32,7 +25,7 @@ export function BadgesPanel({ badges }: Props) {
                 onClick={() => setOpenId(open ? null : badge.id)}
                 aria-expanded={open}
               >
-                <span className="badge__dot" style={{ background: GROUP_TONE[badge.group] }} />
+                <span className="badge__dot" style={{ background: LEVEL_TONE[badge.group] }} />
                 <span className="badge__group">{badge.groupTitle}</span>
                 <span className="badge__title">{badge.title}</span>
               </button>

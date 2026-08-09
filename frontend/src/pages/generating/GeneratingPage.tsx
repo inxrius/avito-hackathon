@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
-import { generateRecap, isInsufficientActivity } from '@/shared/api/recap';
+import { generateRecap } from '@/shared/api/recap';
+import { describeFailure, type FailureView } from '@/shared/api/errors';
 import { cacheRecap } from '@/shared/api/cache';
 import './GeneratingPage.css';
 
@@ -17,14 +18,14 @@ const STEPS = [
 ] as const;
 
 const STEP_MS = 420;
-
-type Failure = { kind: 'insufficient' } | { kind: 'error'; message: string };
+/** Минимальный показ анимации, чтобы сборка не мигала, если бэкенд ответил мгновенно. */
+const MIN_VISIBLE_MS = STEP_MS * STEPS.length;
 
 export function GeneratingPage() {
   const { profileId = '', year = '' } = useParams();
   const navigate = useNavigate();
   const [step, setStep] = useState(0);
-  const [failure, setFailure] = useState<Failure | null>(null);
+  const [failure, setFailure] = useState<FailureView | null>(null);
 
   useEffect(() => {
     let active = true;
@@ -33,8 +34,16 @@ export function GeneratingPage() {
       setStep((current) => Math.min(current + 1, STEPS.length - 1));
     }, STEP_MS);
 
+    // Запрос уходит сразу; ждём только оставшуюся часть минимального показа.
+    const startedAt = Date.now();
+    const holdRemaining = () =>
+      new Promise<void>((resolve) =>
+        setTimeout(resolve, Math.max(0, MIN_VISIBLE_MS - (Date.now() - startedAt))),
+      );
+
     generateRecap(profileId, Number(year))
-      .then((recap) => {
+      .then(async (recap) => {
+        await holdRemaining();
         if (!active) return;
         cacheRecap(recap);
         void navigate(`/recap/${recap.recapId}`, { replace: true });
@@ -42,14 +51,7 @@ export function GeneratingPage() {
       .catch((cause: unknown) => {
         if (!active) return;
         // 422 — не сбой, а штатный ответ: за год слишком мало значимых действий.
-        if (isInsufficientActivity(cause)) {
-          setFailure({ kind: 'insufficient' });
-          return;
-        }
-        setFailure({
-          kind: 'error',
-          message: cause instanceof Error ? cause.message : 'Не удалось собрать итоги',
-        });
+        setFailure(describeFailure(cause));
       })
       .finally(() => clearInterval(ticker));
 
@@ -63,24 +65,27 @@ export function GeneratingPage() {
     return (
       <main className="generating">
         <div className="generating__inner">
-          {failure.kind === 'insufficient' ? (
-            <>
-              <p className="kicker">Города пока нет</p>
-              <h1 className="generating__title">За {year} год слишком мало действий</h1>
-              <p className="generating__hint">
-                Чтобы собрать итоги, нужно хотя бы несколько недель активности: просмотры,
-                избранное, диалоги. Пока их не хватает даже на один квартал.
-              </p>
-            </>
-          ) : (
-            <>
-              <p className="kicker">Ошибка</p>
-              <h1 className="generating__title">{failure.message}</h1>
-            </>
-          )}
-          <button type="button" className="btn btn--primary" onClick={() => void navigate('/')}>
-            Выбрать другой профиль
-          </button>
+          <p className="kicker">Города пока нет</p>
+          <h1 className="generating__title">{failure.title}</h1>
+          {failure.hint && <p className="generating__hint">{failure.hint}</p>}
+          <div className="generating__actions">
+            {failure.retryable && (
+              <button
+                type="button"
+                className="btn btn--primary"
+                onClick={() => window.location.reload()}
+              >
+                Повторить
+              </button>
+            )}
+            <button
+              type="button"
+              className={failure.retryable ? 'btn btn--ghost' : 'btn btn--primary'}
+              onClick={() => void navigate('/')}
+            >
+              Выбрать другой профиль
+            </button>
+          </div>
         </div>
       </main>
     );

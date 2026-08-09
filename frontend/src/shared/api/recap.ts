@@ -1,5 +1,5 @@
 import { adaptProfiles, adaptRecap, applyExplanation } from './adapter';
-import { APIError, createRecap, getExplanation, getProfiles, getRecap, getShareCard } from './client';
+import { createRecap, getExplanation, getProfiles, getRecap, getShareCard } from './client';
 import type { ShareCardDTO } from './dto';
 import type { Profile, Recap } from '@/shared/types/recap';
 
@@ -37,7 +37,3 @@ export function loadShareCard(recapId: string): Promise<ShareCardDTO> {
   return getShareCard(recapId);
 }
 
-/** Профиль без достаточной активности — штатный ответ бэкенда, не сбой. */
-export function isInsufficientActivity(error: unknown): boolean {
-  return error instanceof APIError && error.code === 'insufficient_activity';
-}
