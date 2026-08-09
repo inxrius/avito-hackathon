@@ -128,6 +128,10 @@ export function RecapPage() {
   }
 
   const chapter = recap.chapters[step];
+  // Обоснования показываем, только если бэкенд их разрешил и реально прислал.
+  const hasReasons =
+    recap.capabilities.explanationAvailable &&
+    Boolean(recap.role.reason ?? recap.style.reason);
 
   return (
     <main className="recap">
@@ -173,6 +177,26 @@ export function RecapPage() {
               {/* Главный персональный итог: ровно то, что написал бэкенд. */}
               {recap.summaryText && <p className="recap__summary">{recap.summaryText}</p>}
             </>
+          ) : chapter.kind === 'archetype' ? (
+            /* У роли своя вёрстка: общий шаблон главы разваливал экран на
+               несвязанные строки, а стиль дублировался в описании карточки. */
+            <div className="archetype">
+              {chapter.eyebrow && <p className="archetype__eyebrow">{chapter.eyebrow}</p>}
+              <h1 className="recap__chapter-title">{recap.role.title}</h1>
+
+              <p className="archetype__style">
+                <span className="archetype__style-label">Стиль</span>
+                <span className="archetype__style-value">{recap.style.title}</span>
+              </p>
+
+              {hasReasons && (
+                <div className="archetype__why">
+                  <p className="archetype__why-title">Почему именно так</p>
+                  {recap.role.reason && <p className="recap__reason">{recap.role.reason}</p>}
+                  {recap.style.reason && <p className="recap__reason">{recap.style.reason}</p>}
+                </div>
+              )}
+            </div>
           ) : (
             <>
               <h1 className="recap__chapter-title">{chapter.title}</h1>
@@ -185,20 +209,13 @@ export function RecapPage() {
               {chapter.narrative && (
                 <p
                   className={
-                    chapter.kind === 'summary' ? 'recap__narrative recap__summary' : 'recap__narrative'
+                    chapter.kind === 'summary'
+                      ? 'recap__narrative recap__summary'
+                      : 'recap__narrative'
                   }
                 >
                   {chapter.narrative}
                 </p>
-              )}
-
-              {/* Роль и стиль: заголовок карточки уже содержит роль, стиль — в описании.
-                  Ниже добавляем обоснования из /explanation, если они разрешены. */}
-              {chapter.kind === 'archetype' && recap.capabilities.explanationAvailable && (
-                <div className="recap__reasons">
-                  {recap.role.reason && <p className="recap__reason">{recap.role.reason}</p>}
-                  {recap.style.reason && <p className="recap__reason">{recap.style.reason}</p>}
-                </div>
               )}
 
               {/* Все звания из карточки, а не только первое. */}

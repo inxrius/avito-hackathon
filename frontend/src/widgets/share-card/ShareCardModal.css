@@ -25,110 +25,75 @@
   border-radius: var(--radius-lg);
 }
 
-/* Карточка светлая: она уходит наружу, где тёмная тема recap уже не действует. */
-.share__card {
+.share__placeholder {
+  display: grid;
+  place-items: center;
+  min-height: 280px;
   padding: 22px;
   border-radius: var(--radius-lg);
-  background: linear-gradient(160deg, var(--avito-sky), var(--avito-lavender));
-  color: #131a2e;
-}
-
-.share__kicker {
-  font-size: 11px;
-  font-weight: 700;
-  letter-spacing: 0.18em;
-  text-transform: uppercase;
-  opacity: 0.55;
-}
-
-.share__city {
-  margin-top: 6px;
-  font-size: 26px;
-  font-weight: 800;
-  letter-spacing: -0.02em;
-}
-
-.share__silhouette {
-  display: block;
-  width: 100%;
-  height: auto;
-  margin: 20px 0 18px;
-}
-
-.share__traits {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 8px;
-}
-
-.share__trait {
-  padding: 6px 12px;
-  border-radius: 999px;
-  background: var(--avito-green);
-  color: var(--action-ink);
-  font-size: 13px;
-  font-weight: 700;
-}
-
-.share__trait--soft {
-  background: rgba(19, 26, 46, 0.1);
-  color: #131a2e;
-}
-
-.share__facts {
-  margin: 14px 0 0;
-  padding-left: 18px;
-  font-size: 12px;
-  line-height: 1.7;
-  opacity: 0.75;
-}
-
-.share__meta {
-  margin-top: 14px;
-  font-size: 12px;
-  opacity: 0.6;
+  background: var(--bg-canvas);
+  border: 1px solid var(--stroke-soft);
+  color: var(--text-muted);
+  font-size: 14px;
+  text-align: center;
 }
 
 .share__side {
   display: flex;
   flex-direction: column;
-  gap: 10px;
+  gap: 12px;
 }
 
-.share__side-title {
-  margin-top: 6px;
-  font-size: 12px;
-  font-weight: 700;
-  letter-spacing: 0.14em;
-  text-transform: uppercase;
-  color: var(--text-dim);
+.share__heading {
+  font-size: 22px;
+  font-weight: 800;
+  letter-spacing: -0.01em;
 }
 
-.share__list {
-  margin: 0;
-  padding-left: 18px;
-  font-size: 13px;
-  line-height: 1.7;
+.share__lead {
+  font-size: 14px;
+  line-height: 1.55;
   color: var(--text-muted);
 }
 
-.share__list--ok li::marker {
-  color: var(--avito-green);
-}
-
-.share__list--no li::marker {
-  color: var(--avito-red);
-}
-
-.share__note {
-  margin-top: 4px;
+.share__fallback {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
   font-size: 12px;
-  line-height: 1.5;
   color: var(--text-dim);
 }
 
-.share__copy {
+.share__url {
+  padding: 10px 12px;
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--stroke);
+  background: var(--bg-canvas);
+  color: var(--text);
+  font-family: inherit;
+  font-size: 13px;
+}
+
+.share__actions {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
   margin-top: auto;
+}
+
+.share__actions .btn {
+  width: 100%;
+  text-decoration: none;
+}
+
+.share__actions .btn:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+
+.share__note {
+  font-size: 12px;
+  color: var(--text-dim);
 }
 
 @media (max-width: 720px) {

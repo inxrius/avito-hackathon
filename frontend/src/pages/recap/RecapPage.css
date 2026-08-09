@@ -119,12 +119,59 @@
   color: var(--text);
 }
 
-.recap__reasons {
-  max-width: 620px;
-  margin: 18px auto 0;
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
+/* ---------- Глава роли ---------- */
+
+.archetype__eyebrow {
+  font-size: 12px;
+  font-weight: 700;
+  letter-spacing: 0.18em;
+  text-transform: uppercase;
+  color: var(--text-dim);
+}
+
+.archetype__style {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 12px;
+  margin-top: 14px;
+}
+
+.archetype__style-label {
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--text-dim);
+}
+
+.archetype__style-value {
+  font-size: 24px;
+  font-weight: 800;
+  letter-spacing: -0.01em;
+  color: var(--avito-green);
+}
+
+.archetype__why {
+  max-width: 560px;
+  margin: 26px auto 0;
+  padding: 16px 20px;
+  text-align: left;
+  background: var(--bg-panel);
+  border: 1px solid var(--stroke-soft);
+  border-radius: var(--radius-lg);
+}
+
+.archetype__why-title {
+  margin-bottom: 10px;
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--text-dim);
+}
+
+.archetype__why .recap__reason + .recap__reason {
+  margin-top: 8px;
 }
 
 .recap__reason {

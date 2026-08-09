@@ -175,6 +175,7 @@ export function adaptRecap(dto: RecapDTO): Recap {
     const base = {
       index: index + 1,
       kind: card.type,
+      eyebrow: card.eyebrow ?? undefined,
       title: card.title,
       narrative: card.description ?? '',
     };

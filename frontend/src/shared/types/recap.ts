@@ -59,6 +59,8 @@ export type ChapterKind =
 export interface Chapter {
   index: number;
   kind: ChapterKind;
+  /** Надзаголовок карточки бэкенда: у роли это «Твоя роль в городе». */
+  eyebrow?: string;
   title: string;
   /** Есть не у всех карточек: у intro и archetype крупной цифры нет. */
   stat?: { value: string; label: string };
