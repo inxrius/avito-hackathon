@@ -8,7 +8,9 @@
     "build": "tsc -b && vite build",
     "preview": "vite preview",
     "lint": "eslint .",
-    "format": "prettier --write \"src/**/*.{ts,tsx,css}\""
+    "format": "prettier --write \"src/**/*.{ts,tsx,css}\"",
+    "test": "node --disable-warning=ExperimentalWarning --test --experimental-strip-types src/shared/api/*.test.ts",
+    "check": "npm run test && npm run lint && npm run build"
   },
   "dependencies": {
     "react": "^19.2.8",

@@ -12,37 +12,36 @@ export default defineConfig([
     files: ['**/*.{ts,tsx}'],
     extends: [
       js.configs.recommended,
-      // Типизированные правила: ловят реальные ошибки (await без промиса,
-      // сравнение несравнимого), а не только стиль.
       tseslint.configs.recommendedTypeChecked,
       reactHooks.configs.flat.recommended,
       reactRefresh.configs.vite,
-      // Идёт последним: гасит правила, конфликтующие с Prettier.
       prettier,
     ],
     languageOptions: {
       ecmaVersion: 2022,
       globals: globals.browser,
       parserOptions: {
-        project: ['./tsconfig.app.json', './tsconfig.node.json'],
+        project: ['./tsconfig.app.json', './tsconfig.node.json', './tsconfig.test.json'],
         tsconfigRootDir: import.meta.dirname,
       },
     },
     rules: {
-      // Неиспользуемые переменные — ошибка, кроме префикса `_`:
-      // так осознанно пропущенные аргументы отличаются от забытых.
       '@typescript-eslint/no-unused-vars': [
         'error',
         { argsIgnorePattern: '^_', varsIgnorePattern: '^_' },
       ],
-      // Явный any прячет ошибки типов — в проекте он не нужен нигде.
       '@typescript-eslint/no-explicit-any': 'error',
-      // Единый стиль импорта типов, чтобы сборщик их корректно вырезал.
       '@typescript-eslint/consistent-type-imports': [
         'error',
         { prefer: 'type-imports', fixStyle: 'inline-type-imports' },
       ],
       'no-console': ['warn', { allow: ['warn', 'error'] }],
+    },
+  },
+  {
+    files: ['**/*.test.ts'],
+    languageOptions: {
+      globals: { ...globals.browser, ...globals.node },
     },
   },
 ]);
