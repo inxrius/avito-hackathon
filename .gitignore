@@ -34,3 +34,5 @@ docker-compose.override.yml
 # Temporary files
 *.tmp
 *.temp
+# Локальные настройки редактора/агента
+.claude/
