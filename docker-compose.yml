@@ -40,7 +40,8 @@ services:
 
   backend:
     env_file:
-      - ./backend/.env
+      - path: ./backend/.env.example
+        required: false
     build:
       context: ./backend
       dockerfile: Dockerfile
@@ -57,7 +58,6 @@ services:
       CLICKHOUSE_USER: default
       CLICKHOUSE_PASSWORD: ""
       SERVER_PORT: 8080
-  
     ports:
       - "8080:8080"
     depends_on:
@@ -65,7 +65,23 @@ services:
         condition: service_healthy
       clickhouse:
         condition: service_healthy
+    healthcheck:
+      test: ["CMD", "wget", "-q", "-O", "/dev/null", "http://127.0.0.1:8080/api/v1/profiles"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+    restart: on-failure
 
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+    container_name: avito-recap-frontend
+    ports:
+      - "5173:80"
+    depends_on:
+      backend:
+        condition: service_healthy
     restart: on-failure
 
 volumes:

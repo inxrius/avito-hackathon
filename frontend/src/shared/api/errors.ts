@@ -1,4 +1,4 @@
-import { APIError, NetworkError } from './client';
+import { APIError, NetworkError } from './client.ts';
 
 /**
  * Человеческое описание сбоя. Технический текст бэкенда пользователю не

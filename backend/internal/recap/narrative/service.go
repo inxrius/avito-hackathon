@@ -41,13 +41,13 @@ func (s Service) Build(ctx context.Context, input Input, topAchievementTitle str
 	}
 	parsed, err := parseAndValidate(result.Content, input.SafeFacts, input.Year)
 	if err != nil {
-			log.Printf("mistral narrative fallback: validation error: %v", err)
-			return fallback
+		log.Printf("mistral narrative fallback: validation error: %v", err)
+		return fallback
 	}
 
 	if strings.TrimSpace(result.Model) == "" {
-    log.Printf("mistral narrative fallback: empty model")
-    return fallback
+		log.Printf("mistral narrative fallback: empty model")
+		return fallback
 	}
 	model := result.Model
 	return recap.Narrative{

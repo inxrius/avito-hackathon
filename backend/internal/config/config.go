@@ -33,7 +33,7 @@ func Load() Config {
 		MistralAPIKey:     os.Getenv("MISTRAL_API_KEY"),
 		MistralModel:      env("MISTRAL_MODEL", "mistral-small-latest"),
 		MistralEndpoint:   os.Getenv("MISTRAL_ENDPOINT"),
-		MistralTimeout:    durationEnv("MISTRAL_TIMEOUT", 3*time.Second),
+		MistralTimeout:    durationEnv("MISTRAL_TIMEOUT", 15*time.Second),
 		PublicAvatarHosts: csvEnv("PUBLIC_AVATAR_HOSTS"),
 	}
 }
