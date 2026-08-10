@@ -49,11 +49,31 @@
 }
 
 .share-card__facts {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
   margin: 14px 0 0;
-  padding-left: 18px;
+  padding: 0;
+  list-style: none;
   font-size: 12px;
-  line-height: 1.7;
+  line-height: 1.55;
   opacity: 0.75;
+}
+
+.share-card__facts li {
+  position: relative;
+  padding-left: 12px;
+}
+
+.share-card__facts li::before {
+  content: '';
+  position: absolute;
+  top: 0.62em;
+  left: 0;
+  width: 4px;
+  height: 4px;
+  border-radius: 50%;
+  background: var(--avito-green);
 }
 
 .share-card__awards {

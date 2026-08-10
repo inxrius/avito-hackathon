@@ -99,15 +99,6 @@ export function ShareCardModal({ recapId, onClose }: Props) {
             >
               {copyState === 'copied' ? 'Ссылка скопирована ✓' : 'Скопировать ссылку'}
             </button>
-            <a
-              className="btn btn--ghost"
-              href={publicUrl}
-              target="_blank"
-              rel="noreferrer"
-              aria-disabled={!card}
-            >
-              Открыть карточку
-            </a>
             <button ref={closeRef} type="button" className="btn btn--ghost" onClick={onClose}>
               Закрыть
             </button>

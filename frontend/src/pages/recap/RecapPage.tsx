@@ -190,11 +190,13 @@ export function RecapPage() {
               </p>
 
               {hasReasons && (
-                <div className="archetype__why">
-                  <p className="archetype__why-title">Почему именно так</p>
-                  {recap.role.reason && <p className="recap__reason">{recap.role.reason}</p>}
-                  {recap.style.reason && <p className="recap__reason">{recap.style.reason}</p>}
-                </div>
+                <details className="archetype__why">
+                  <summary className="archetype__why-toggle">Почему так?</summary>
+                  <div className="archetype__why-content">
+                    {recap.role.reason && <p className="recap__reason">{recap.role.reason}</p>}
+                    {recap.style.reason && <p className="recap__reason">{recap.style.reason}</p>}
+                  </div>
+                </details>
               )}
             </div>
           ) : (
@@ -279,11 +281,7 @@ export function RecapPage() {
             <p className="recap__privacy">
               В городе нет переписок, цен и данных других людей — только форма твоего года.
             </p>
-            <p className="recap__version">
-              Правила: {recap.rulesVersion} · текст:{' '}
-              {recap.narrativeSource === 'mistral' ? 'сгенерирован ИИ' : 'шаблон'}. Тот же профиль
-              всегда даёт тот же город.
-            </p>
+            <p className="recap__year-note">Итоги собраны по твоей активности за {recap.year} год.</p>
           </footer>
         </section>
       )}
