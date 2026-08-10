@@ -36,11 +36,11 @@ func TestMistralHTTPProviderBuildsStrictSingleRequest(t *testing.T) {
 		if !ok {
 			t.Fatalf("json_schema=%#v", format["json_schema"])
 		}
-		if schema["strict"] != true || schema["schema_definition"] == nil {
+		if schema["strict"] != true || schema["schema"] == nil {
 			t.Fatalf("schema=%#v", schema)
 		}
-		if _, exists := schema["schema"]; exists {
-			t.Fatalf("legacy schema key present: %#v", schema)
+		if _, exists := schema["schema_definition"]; exists {
+			t.Fatalf("legacy schema_definition key present: %#v", schema)
 		}
 		w.Header().Set("Content-Type", "application/json")
 		response := map[string]any{"model": "actual-model", "choices": []any{map[string]any{"message": map[string]any{"content": `{"summary_title":"Итоги","summary_text":"Готово"}`}}}}

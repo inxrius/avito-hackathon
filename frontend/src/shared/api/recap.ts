@@ -1,7 +1,7 @@
-import { adaptProfiles, adaptRecap, applyExplanation } from './adapter';
-import { createRecap, getExplanation, getProfiles, getRecap, getShareCard } from './client';
-import type { ShareCardDTO } from './dto';
-import type { Profile, Recap } from '@/shared/types/recap';
+import { adaptProfiles, adaptRecap, applyExplanation } from './adapter.ts';
+import { createRecap, getExplanation, getProfiles, getRecap, getShareCard } from './client.ts';
+import type { ShareCardDTO } from './dto.ts';
+import type { Profile, Recap } from '../types/recap.ts';
 
 /**
  * Прикладной слой: страницы ходят сюда и получают уже модель экранов.

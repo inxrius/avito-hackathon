@@ -1,4 +1,4 @@
-import { endpoints } from './api';
+import { endpoints } from './api.ts';
 import type {
   APIErrorCode,
   APIErrorDTO,
@@ -6,7 +6,7 @@ import type {
   RecapDTO,
   RecapExplanationDTO,
   ShareCardDTO,
-} from './dto';
+} from './dto.ts';
 
 /**
  * HTTP-слой. Ничего не знает про экраны: отдаёт DTO как есть

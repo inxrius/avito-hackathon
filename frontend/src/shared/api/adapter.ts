@@ -7,7 +7,7 @@ import type {
   RecapExplanationDTO,
   RuleFactDTO,
   VerticalCode,
-} from './dto';
+} from './dto.ts';
 import {
   OTHER_DISTRICT,
   type Badge,
@@ -16,7 +16,7 @@ import {
   type District,
   type Profile,
   type Recap,
-} from '@/shared/types/recap';
+} from '../types/recap.ts';
 
 /**
  * Приведение контракта бэкенда к модели экранов.
