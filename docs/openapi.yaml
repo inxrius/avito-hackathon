@@ -1,0 +1,1362 @@
+openapi: 3.0.3
+
+info:
+  title: Avito Year Recap API
+  version: 2.0.1
+  description: |
+    REST API персональных «Итогов года» в концепции города.
+
+    Итоги формируются синхронно и только один раз для пары пользователь–год.
+    Повторный запрос возвращает ранее сформированный неизменяемый результат.
+  license:
+    name: Proprietary Hackathon MVP
+    url: https://github.com/inxrius/avito-hackathon
+
+servers:
+  - url: /api/v1
+    description: API v1
+
+security: []
+
+tags:
+  - name: Profiles
+    description: Пользователи, для которых доступны итоги года.
+  - name: Recaps
+    description: Однократное формирование и получение итогов года.
+  - name: Explanations
+    description: Объяснения детерминированных решений.
+  - name: Sharing
+    description: Безопасная публичная проекция итогов.
+  - name: Interactions
+    description: Продуктовые события просмотра итогов.
+
+paths:
+  /profiles:
+    get:
+      tags: [Profiles]
+      operationId: listProfiles
+      summary: Получить пользователей с доступными итогами
+      responses:
+        "200":
+          description: Массив пользователей. Пустой массив допустим.
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/Profile"
+              examples:
+                twoProfiles:
+                  $ref: "#/components/examples/ProfileCollection"
+        "429":
+          $ref: "#/components/responses/RateLimitExceeded"
+        "500":
+          $ref: "#/components/responses/InternalError"
+
+  /profiles/{id}:
+    get:
+      tags: [Profiles]
+      operationId: getProfile
+      summary: Получить пользователя
+      parameters:
+        - $ref: "#/components/parameters/ProfileId"
+      responses:
+        "200":
+          description: Пользователь и годы, за которые можно сформировать итоги.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Profile"
+              examples:
+                default:
+                  $ref: "#/components/examples/Profile"
+        "404":
+          $ref: "#/components/responses/ProfileNotFound"
+        "500":
+          $ref: "#/components/responses/InternalError"
+
+  /recaps:
+    post:
+      tags: [Recaps]
+      operationId: createRecap
+      summary: Сформировать итоги года один раз
+      description: |
+        Синхронно формирует итоговый snapshot для пары `profile_id`–`year`.
+        Первый запрос возвращает `201 Created`. Если итог для этой пары уже
+        существует, он не пересчитывается и возвращается с `200 OK`.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CreateRecapRequest"
+            examples:
+              default:
+                value:
+                  profile_id: 19369d67-1db3-4e87-b8a8-9c82991ba173
+                  year: 2026
+      responses:
+        "201":
+          description: Итоги впервые сформированы и сохранены.
+          headers:
+            Location:
+              description: URI созданного recap.
+              schema:
+                type: string
+                format: uri-reference
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Recap"
+              examples:
+                created:
+                  $ref: "#/components/examples/Recap"
+        "200":
+          description: Возвращён ранее сформированный неизменяемый recap.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Recap"
+              examples:
+                existing:
+                  $ref: "#/components/examples/Recap"
+        "400":
+          $ref: "#/components/responses/InvalidArgument"
+        "404":
+          $ref: "#/components/responses/ProfileNotFound"
+        "422":
+          $ref: "#/components/responses/InsufficientActivity"
+        "429":
+          $ref: "#/components/responses/RateLimitExceeded"
+        "503":
+          $ref: "#/components/responses/DependencyUnavailable"
+        "500":
+          $ref: "#/components/responses/InternalError"
+
+  /recaps/{id}:
+    get:
+      tags: [Recaps]
+      operationId: getRecap
+      summary: Получить сформированные итоги года
+      parameters:
+        - $ref: "#/components/parameters/RecapId"
+      responses:
+        "200":
+          description: Неизменяемый recap.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Recap"
+              examples:
+                default:
+                  $ref: "#/components/examples/Recap"
+        "404":
+          $ref: "#/components/responses/RecapNotFound"
+        "500":
+          $ref: "#/components/responses/InternalError"
+
+  /recaps/{id}/explanation:
+    get:
+      tags: [Explanations]
+      operationId: getRecapExplanation
+      summary: Получить объяснение решений recap
+      parameters:
+        - $ref: "#/components/parameters/RecapId"
+      responses:
+        "200":
+          description: Правила и факты, определившие архетип и достижения.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/RecapExplanation"
+              examples:
+                default:
+                  $ref: "#/components/examples/RecapExplanation"
+        "404":
+          $ref: "#/components/responses/RecapNotFound"
+        "409":
+          $ref: "#/components/responses/ExplanationNotAvailable"
+        "500":
+          $ref: "#/components/responses/InternalError"
+
+  /recaps/{id}/share:
+    get:
+      tags: [Sharing]
+      operationId: getShareCard
+      summary: Получить публичную карточку итогов
+      parameters:
+        - $ref: "#/components/parameters/RecapId"
+      responses:
+        "200":
+          description: Публичная проекция без приватных идентификаторов и внутренних оценок.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ShareCard"
+              examples:
+                default:
+                  $ref: "#/components/examples/ShareCard"
+        "404":
+          $ref: "#/components/responses/RecapNotFound"
+        "409":
+          $ref: "#/components/responses/ShareNotAvailable"
+        "500":
+          $ref: "#/components/responses/InternalError"
+
+  /recaps/{id}/interactions:
+    post:
+      tags: [Interactions]
+      operationId: createRecapInteraction
+      summary: Зафиксировать продуктовое взаимодействие
+      description: Повторная отправка того же `event_id` не создаёт новое событие.
+      parameters:
+        - $ref: "#/components/parameters/RecapId"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/InteractionRequest"
+            examples:
+              cardViewed:
+                value:
+                  event_id: b91837cb-bf50-4112-965a-840e35d65f24
+                  session_id: a68ee614-e883-4f20-88c7-908e88333f74
+                  event_name: card_viewed
+                  occurred_at: "2026-08-05T17:34:12Z"
+                  properties:
+                    card_id: main-district
+                    position: 2
+      responses:
+        "202":
+          description: Событие принято.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/InteractionResponse"
+              examples:
+                accepted:
+                  value:
+                    accepted: true
+                    recap_id: 6dfc1418-e106-49ab-b839-c9498418e8f6
+                    event_id: b91837cb-bf50-4112-965a-840e35d65f24
+        "400":
+          $ref: "#/components/responses/InvalidArgument"
+        "404":
+          $ref: "#/components/responses/RecapNotFound"
+        "429":
+          $ref: "#/components/responses/RateLimitExceeded"
+        "500":
+          $ref: "#/components/responses/InternalError"
+
+components:
+  parameters:
+    ProfileId:
+      name: id
+      in: path
+      required: true
+      description: UUID пользователя.
+      schema:
+        type: string
+        format: uuid
+
+    RecapId:
+      name: id
+      in: path
+      required: true
+      description: UUID сформированных итогов.
+      schema:
+        type: string
+        format: uuid
+
+  responses:
+    InvalidArgument:
+      description: Запрос содержит невалидные данные.
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/APIError"
+          example:
+            code: invalid_argument
+            message: Поле year должно быть в диапазоне 2000–2100
+            request_id: eece2db3-0987-4694-a993-f7de7c487290
+            details:
+              - field: year
+                reason: out_of_range
+
+    ProfileNotFound:
+      description: Пользователь не найден.
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/APIError"
+          example:
+            code: profile_not_found
+            message: Пользователь не найден
+            request_id: eece2db3-0987-4694-a993-f7de7c487290
+
+    RecapNotFound:
+      description: Итоги года не найдены.
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/APIError"
+          example:
+            code: recap_not_found
+            message: Итоги года не найдены
+            request_id: eece2db3-0987-4694-a993-f7de7c487290
+
+    ExplanationNotAvailable:
+      description: Объяснение решений отключено для этих итогов.
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/APIError"
+          example:
+            code: explanation_not_available
+            message: Объяснение решений недоступно
+            request_id: eece2db3-0987-4694-a993-f7de7c487290
+
+    ShareNotAvailable:
+      description: Публичная карточка отключена для этих итогов.
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/APIError"
+          example:
+            code: share_not_available
+            message: Публичная карточка недоступна
+            request_id: eece2db3-0987-4694-a993-f7de7c487290
+
+    InsufficientActivity:
+      description: Для формирования итогов недостаточно активности.
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/APIError"
+          example:
+            code: insufficient_activity
+            message: За выбранный год недостаточно значимых действий
+            request_id: eece2db3-0987-4694-a993-f7de7c487290
+
+    RateLimitExceeded:
+      description: Превышен лимит запросов.
+      headers:
+        Retry-After:
+          description: Через сколько секунд можно повторить запрос.
+          schema:
+            type: integer
+            minimum: 0
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/APIError"
+          example:
+            code: rate_limit_exceeded
+            message: Слишком много запросов
+            request_id: eece2db3-0987-4694-a993-f7de7c487290
+
+    DependencyUnavailable:
+      description: Критическая зависимость временно недоступна.
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/APIError"
+          example:
+            code: dependency_unavailable
+            message: Источник активности временно недоступен
+            request_id: eece2db3-0987-4694-a993-f7de7c487290
+
+    InternalError:
+      description: Необработанная внутренняя ошибка.
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/APIError"
+          example:
+            code: internal_error
+            message: Внутренняя ошибка сервера
+            request_id: eece2db3-0987-4694-a993-f7de7c487290
+
+  schemas:
+    Profile:
+      type: object
+      additionalProperties: false
+      required: [id, name, description, available_years]
+      properties:
+        id:
+          type: string
+          format: uuid
+        name:
+          type: string
+          minLength: 1
+          maxLength: 100
+        description:
+          type: string
+          minLength: 1
+          maxLength: 500
+        avatar_url:
+          type: string
+          nullable: true
+          format: uri-reference
+        available_years:
+          type: array
+          minItems: 1
+          uniqueItems: true
+          items:
+            type: integer
+            minimum: 2000
+            maximum: 2100
+
+    CreateRecapRequest:
+      type: object
+      additionalProperties: false
+      required: [profile_id, year]
+      properties:
+        profile_id:
+          type: string
+          format: uuid
+        year:
+          type: integer
+          minimum: 2000
+          maximum: 2100
+
+    Recap:
+      type: object
+      additionalProperties: false
+      required:
+        - schema_version
+        - id
+        - profile_id
+        - year
+        - profile
+        - generation
+        - theme
+        - cards
+        - capabilities
+      properties:
+        schema_version:
+          type: string
+          pattern: '^\d+\.\d+$'
+        id:
+          type: string
+          format: uuid
+        profile_id:
+          type: string
+          format: uuid
+        year:
+          type: integer
+          minimum: 2000
+          maximum: 2100
+        profile:
+          $ref: "#/components/schemas/RecapProfile"
+        generation:
+          $ref: "#/components/schemas/RecapGeneration"
+        theme:
+          $ref: "#/components/schemas/RecapTheme"
+        cards:
+          type: array
+          minItems: 5
+          maxItems: 20
+          description: Карточки отсортированы по `position` по возрастанию.
+          items:
+            $ref: "#/components/schemas/RecapCard"
+        capabilities:
+          $ref: "#/components/schemas/RecapCapabilities"
+
+    RecapProfile:
+      type: object
+      additionalProperties: false
+      required: [id, name]
+      properties:
+        id:
+          type: string
+          format: uuid
+        name:
+          type: string
+          minLength: 1
+          maxLength: 100
+        avatar_url:
+          type: string
+          nullable: true
+          format: uri-reference
+
+    RecapGeneration:
+      type: object
+      additionalProperties: false
+      required:
+        - algorithm_version
+        - feature_schema_version
+        - activity_hash
+        - generated_at
+        - narrative
+      properties:
+        algorithm_version:
+          type: string
+          maxLength: 50
+        feature_schema_version:
+          type: string
+          maxLength: 50
+        activity_hash:
+          type: string
+          pattern: '^sha256:[a-f0-9]{64}$'
+        generated_at:
+          type: string
+          format: date-time
+        narrative:
+          $ref: "#/components/schemas/NarrativeGeneration"
+
+    NarrativeGeneration:
+      type: object
+      additionalProperties: false
+      required: [source, prompt_version]
+      properties:
+        source:
+          type: string
+          enum: [mistral, template]
+        prompt_version:
+          type: string
+          maxLength: 50
+        model:
+          type: string
+          nullable: true
+          maxLength: 100
+
+    RecapTheme:
+      type: object
+      additionalProperties: false
+      required: [code, main_district]
+      properties:
+        code:
+          type: string
+          enum: [city]
+        main_district:
+          $ref: "#/components/schemas/Vertical"
+        accent_token:
+          $ref: "#/components/schemas/AccentToken"
+
+    RecapCapabilities:
+      type: object
+      additionalProperties: false
+      required: [share_available, explanation_available, feedback_available]
+      properties:
+        share_available:
+          type: boolean
+          description: |
+            Если `false`, публичная ShareCard не формируется, кнопка sharing
+            скрыта, а `GET /recaps/{id}/share` возвращает `409 share_not_available`.
+        explanation_available:
+          type: boolean
+          description: |
+            Если `false`, объяснение решений не формируется, а
+            `GET /recaps/{id}/explanation` возвращает
+            `409 explanation_not_available`.
+        feedback_available:
+          type: boolean
+          description: Определяет доступность отправки пользовательской обратной связи.
+
+    Vertical:
+      type: object
+      additionalProperties: false
+      required: [code, title]
+      properties:
+        code:
+          $ref: "#/components/schemas/VerticalCode"
+        title:
+          type: string
+          minLength: 1
+          maxLength: 100
+
+    VerticalCode:
+      type: string
+      enum: [goods, transport, real_estate, jobs, services]
+
+    Category:
+      type: object
+      additionalProperties: false
+      required: [code, title, vertical_code]
+      properties:
+        code:
+          $ref: "#/components/schemas/CategoryCode"
+        title:
+          type: string
+          minLength: 1
+          maxLength: 100
+        vertical_code:
+          $ref: "#/components/schemas/VerticalCode"
+
+    CategoryCode:
+      type: string
+      enum:
+        - electronics
+        - home_and_garden
+        - clothing_and_accessories
+        - hobbies_and_leisure
+        - cars
+        - apartments
+        - vacancies
+        - personal_services
+
+    AccentToken:
+      type: string
+      nullable: true
+      enum: [violet, blue, green, orange]
+
+    RecapCard:
+      oneOf:
+        - $ref: "#/components/schemas/IntroCard"
+        - $ref: "#/components/schemas/MetricCard"
+        - $ref: "#/components/schemas/DistrictCard"
+        - $ref: "#/components/schemas/ArchetypeCard"
+        - $ref: "#/components/schemas/AchievementsCard"
+        - $ref: "#/components/schemas/SummaryCard"
+        - $ref: "#/components/schemas/FinalCard"
+      discriminator:
+        propertyName: type
+        mapping:
+          intro: "#/components/schemas/IntroCard"
+          metric: "#/components/schemas/MetricCard"
+          district: "#/components/schemas/DistrictCard"
+          archetype: "#/components/schemas/ArchetypeCard"
+          achievements: "#/components/schemas/AchievementsCard"
+          summary: "#/components/schemas/SummaryCard"
+          final: "#/components/schemas/FinalCard"
+
+    BaseRecapCard:
+      type: object
+      required: [id, type, position, visibility, title, explainable]
+      properties:
+        id:
+          type: string
+          minLength: 1
+          maxLength: 100
+        type:
+          type: string
+          enum: [intro, metric, district, archetype, achievements, summary, final]
+        position:
+          type: integer
+          minimum: 0
+        visibility:
+          type: string
+          enum: [personal, shareable]
+        eyebrow:
+          type: string
+          nullable: true
+          maxLength: 100
+        title:
+          type: string
+          minLength: 1
+          maxLength: 120
+        description:
+          type: string
+          nullable: true
+          maxLength: 500
+        visual:
+          $ref: "#/components/schemas/CardVisual"
+        explainable:
+          type: boolean
+
+    CardVisual:
+      type: object
+      additionalProperties: false
+      required: [kind]
+      properties:
+        kind:
+          type: string
+          enum: [illustration, district, street, calendar, badge, chart, character, skyline]
+        asset_code:
+          type: string
+          nullable: true
+          maxLength: 100
+
+    IntroCard:
+      allOf:
+        - $ref: "#/components/schemas/BaseRecapCard"
+        - type: object
+          required: [type, data]
+          properties:
+            type:
+              type: string
+              enum: [intro]
+            data:
+              type: object
+              additionalProperties: false
+              required: [year]
+              properties:
+                year:
+                  type: integer
+                  minimum: 2000
+                  maximum: 2100
+
+    MetricCard:
+      allOf:
+        - $ref: "#/components/schemas/BaseRecapCard"
+        - type: object
+          required: [type, data]
+          properties:
+            type:
+              type: string
+              enum: [metric]
+            data:
+              $ref: "#/components/schemas/MetricValue"
+
+    MetricValue:
+      type: object
+      additionalProperties: false
+      required: [metric_code, value]
+      properties:
+        metric_code:
+          $ref: "#/components/schemas/MetricCode"
+        value:
+          type: number
+        unit:
+          $ref: "#/components/schemas/MetricUnit"
+        secondary_label:
+          type: string
+          nullable: true
+          maxLength: 200
+
+    MetricCode:
+      type: string
+      enum:
+        - meaningful_events
+        - active_days
+        - active_months
+        - max_activity_streak
+        - views_count
+        - favorites_count
+        - saved_searches_count
+        - chats_started_count
+        - published_listings_count
+        - sales_count
+        - purchases_count
+        - delivery_count
+        - unique_categories
+        - unique_verticals
+        - top_vertical_share
+        - top_category_share
+        - buyer_actions_count
+        - seller_actions_count
+        - completed_deals_count
+        - favorite_to_purchase_rate
+        - publish_to_sale_rate
+        - delivery_usage_rate
+
+    MetricUnit:
+      type: string
+      nullable: true
+      enum: [events, days, months, items, categories, verticals, actions, ratio]
+
+    DistrictCard:
+      allOf:
+        - $ref: "#/components/schemas/BaseRecapCard"
+        - type: object
+          required: [type, data]
+          properties:
+            type:
+              type: string
+              enum: [district]
+            data:
+              type: object
+              additionalProperties: false
+              required: [vertical, activity_share]
+              properties:
+                vertical:
+                  $ref: "#/components/schemas/Vertical"
+                activity_share:
+                  type: number
+                  minimum: 0
+                  maximum: 1
+                top_category:
+                  $ref: "#/components/schemas/Category"
+
+    ArchetypeCard:
+      allOf:
+        - $ref: "#/components/schemas/BaseRecapCard"
+        - type: object
+          required: [type, data]
+          properties:
+            type:
+              type: string
+              enum: [archetype]
+            data:
+              type: object
+              additionalProperties: false
+              required: [role, style]
+              properties:
+                role:
+                  $ref: "#/components/schemas/ArchetypeRole"
+                style:
+                  $ref: "#/components/schemas/ArchetypeStyle"
+
+    ArchetypeRole:
+      type: object
+      additionalProperties: false
+      required: [code, title]
+      properties:
+        code:
+          $ref: "#/components/schemas/ArchetypeRoleCode"
+        title:
+          type: string
+          maxLength: 100
+
+    ArchetypeRoleCode:
+      type: string
+      enum: [findings_seeker, showcase_owner, universal_citizen, city_observer]
+
+    ArchetypeStyle:
+      type: object
+      additionalProperties: false
+      required: [code, title]
+      properties:
+        code:
+          $ref: "#/components/schemas/ArchetypeStyleCode"
+        title:
+          type: string
+          maxLength: 100
+
+    ArchetypeStyleCode:
+      type: string
+      enum: [thoughtful, explorer, district_expert, regular, result_oriented, city_local]
+
+    AchievementsCard:
+      allOf:
+        - $ref: "#/components/schemas/BaseRecapCard"
+        - type: object
+          required: [type, data]
+          properties:
+            type:
+              type: string
+              enum: [achievements]
+            data:
+              type: object
+              additionalProperties: false
+              required: [items, total_count]
+              properties:
+                items:
+                  type: array
+                  minItems: 1
+                  maxItems: 3
+                  items:
+                    $ref: "#/components/schemas/Achievement"
+                total_count:
+                  type: integer
+                  minimum: 1
+
+    Achievement:
+      type: object
+      additionalProperties: false
+      required: [code, title, description, level, icon]
+      properties:
+        code:
+          $ref: "#/components/schemas/AchievementCode"
+        title:
+          type: string
+          maxLength: 100
+        description:
+          type: string
+          maxLength: 300
+        level:
+          type: string
+          enum: [newcomer, local, expert, guru]
+        icon:
+          type: string
+          maxLength: 100
+        metric_code:
+          $ref: "#/components/schemas/MetricCode"
+        current_value:
+          type: number
+          nullable: true
+        next_level_threshold:
+          type: number
+          nullable: true
+
+    AchievementCode:
+      type: string
+      enum:
+        - deal_master
+        - findings_collector
+        - city_navigator
+        - frequent_guest
+        - old_timer
+        - doorstep_delivery
+        - own_showcase
+        - findings_hunter
+        - city_rhythm
+
+    SummaryCard:
+      allOf:
+        - $ref: "#/components/schemas/BaseRecapCard"
+        - type: object
+          required: [type, data]
+          properties:
+            type:
+              type: string
+              enum: [summary]
+            data:
+              type: object
+              additionalProperties: false
+              required: [role_code, style_code, achievement_codes]
+              properties:
+                role_code:
+                  $ref: "#/components/schemas/ArchetypeRoleCode"
+                style_code:
+                  $ref: "#/components/schemas/ArchetypeStyleCode"
+                achievement_codes:
+                  type: array
+                  minItems: 1
+                  maxItems: 3
+                  items:
+                    $ref: "#/components/schemas/AchievementCode"
+
+    FinalCard:
+      allOf:
+        - $ref: "#/components/schemas/BaseRecapCard"
+        - type: object
+          required: [type, data]
+          properties:
+            type:
+              type: string
+              enum: [final]
+            data:
+              type: object
+              additionalProperties: false
+              required: [show_share_button, show_feedback]
+              properties:
+                show_share_button:
+                  type: boolean
+                show_feedback:
+                  type: boolean
+
+    RecapExplanation:
+      type: object
+      additionalProperties: false
+      required: [recap_id, algorithm_version, activity_hash, decisions]
+      properties:
+        recap_id:
+          type: string
+          format: uuid
+        algorithm_version:
+          type: string
+        activity_hash:
+          type: string
+          pattern: '^sha256:[a-f0-9]{64}$'
+        decisions:
+          type: array
+          minItems: 1
+          items:
+            $ref: "#/components/schemas/DecisionExplanation"
+
+    DecisionExplanation:
+      type: object
+      additionalProperties: false
+      required: [card_id, kind, code, reason, rule_version, facts]
+      properties:
+        card_id:
+          type: string
+          maxLength: 100
+        kind:
+          type: string
+          enum: [archetype_role, archetype_style, achievement]
+        code:
+          oneOf:
+            - $ref: "#/components/schemas/ArchetypeRoleCode"
+            - $ref: "#/components/schemas/ArchetypeStyleCode"
+            - $ref: "#/components/schemas/AchievementCode"
+        reason:
+          type: string
+          maxLength: 500
+        rule_version:
+          type: string
+          maxLength: 50
+        facts:
+          type: array
+          minItems: 1
+          description: |
+            Публичные подтверждающие признаки выбранного решения. Массив не
+            обязан раскрывать полную внутреннюю формулу, derived scores или
+            все промежуточные значения алгоритма.
+          items:
+            $ref: "#/components/schemas/RuleFact"
+
+    RuleFact:
+      type: object
+      additionalProperties: false
+      description: |
+        Проверяемый публичный факт, подтверждающий решение. Не является
+        гарантированно полным представлением внутреннего правила.
+      required: [metric_code, actual, operator, threshold, matched]
+      properties:
+        metric_code:
+          $ref: "#/components/schemas/MetricCode"
+        actual:
+          type: number
+        operator:
+          type: string
+          enum: [eq, neq, gt, gte, lt, lte]
+        threshold:
+          type: number
+        matched:
+          type: boolean
+
+    ShareCard:
+      type: object
+      additionalProperties: false
+      description: Не содержит profile_id, listing_id, внутренних score и текстов сообщений.
+      required: [schema_version, recap_id, profile_name, year, title, subtitle, main_district, facts, achievements, visual]
+      properties:
+        schema_version:
+          type: string
+        recap_id:
+          type: string
+          format: uuid
+        profile_name:
+          type: string
+          maxLength: 100
+        avatar_url:
+          type: string
+          format: uri
+          pattern: '^https://'
+          maxLength: 2048
+          description: |
+            Публичный HTTPS CDN URL. URL не должен содержать userinfo,
+            query-параметры, fragment, секреты, UUID пользователя, внутренний
+            profile_id, localhost или IP-адрес. Поле отсутствует, если URL не
+            прошёл allowlist-проверку.
+        year:
+          type: integer
+          minimum: 2000
+          maximum: 2100
+        title:
+          type: string
+          maxLength: 120
+        subtitle:
+          type: string
+          maxLength: 200
+        main_district:
+          $ref: "#/components/schemas/Vertical"
+        facts:
+          type: array
+          minItems: 1
+          maxItems: 5
+          items:
+            $ref: "#/components/schemas/ShareFact"
+        achievements:
+          type: array
+          minItems: 1
+          maxItems: 3
+          items:
+            $ref: "#/components/schemas/ShareAchievement"
+        visual:
+          $ref: "#/components/schemas/ShareVisual"
+
+    ShareFact:
+      type: object
+      additionalProperties: false
+      required: [kind, label, value]
+      properties:
+        kind:
+          type: string
+          enum: [main_district, active_days, top_achievement]
+        label:
+          type: string
+          maxLength: 100
+        value:
+          type: string
+          maxLength: 200
+
+    ShareAchievement:
+      type: object
+      additionalProperties: false
+      required: [code, title, level, icon]
+      properties:
+        code:
+          $ref: "#/components/schemas/AchievementCode"
+        title:
+          type: string
+          maxLength: 100
+        level:
+          type: string
+          enum: [newcomer, local, expert, guru]
+        icon:
+          type: string
+          maxLength: 100
+
+    ShareVisual:
+      type: object
+      additionalProperties: false
+      required: [theme]
+      properties:
+        theme:
+          type: string
+          enum: [city]
+
+    InteractionRequest:
+      type: object
+      additionalProperties: false
+      required: [event_id, session_id, event_name, occurred_at]
+      properties:
+        event_id:
+          type: string
+          format: uuid
+        session_id:
+          type: string
+          format: uuid
+        event_name:
+          type: string
+          enum:
+            - recap_opened
+            - card_viewed
+            - explanation_opened
+            - recap_completed
+            - share_preview_opened
+            - share_clicked
+            - achievements_expanded
+            - feedback_submitted
+        occurred_at:
+          type: string
+          format: date-time
+        properties:
+          type: object
+          additionalProperties: true
+          default: {}
+
+    InteractionResponse:
+      type: object
+      additionalProperties: false
+      required: [accepted, recap_id, event_id]
+      properties:
+        accepted:
+          type: boolean
+        recap_id:
+          type: string
+          format: uuid
+        event_id:
+          type: string
+          format: uuid
+
+    APIError:
+      type: object
+      additionalProperties: false
+      required: [code, message, request_id]
+      properties:
+        code:
+          type: string
+          enum:
+            - invalid_argument
+            - profile_not_found
+            - recap_not_found
+            - explanation_not_available
+            - share_not_available
+            - insufficient_activity
+            - rate_limit_exceeded
+            - dependency_unavailable
+            - internal_error
+        message:
+          type: string
+          minLength: 1
+        request_id:
+          type: string
+          format: uuid
+        details:
+          type: array
+          items:
+            $ref: "#/components/schemas/ErrorDetail"
+
+    ErrorDetail:
+      type: object
+      additionalProperties: false
+      required: [reason]
+      properties:
+        field:
+          type: string
+          nullable: true
+        reason:
+          type: string
+          minLength: 1
+
+  examples:
+    Profile:
+      summary: Пользователь с доступным 2026 годом
+      value:
+        id: 19369d67-1db3-4e87-b8a8-9c82991ba173
+        name: Алексей
+        description: Изучает разные районы города и сохраняет интересные находки
+        avatar_url: /assets/profiles/alexey.webp
+        available_years: [2025, 2026]
+
+    ProfileCollection:
+      summary: Два пользователя без дополнительной обёртки
+      value:
+        - id: 19369d67-1db3-4e87-b8a8-9c82991ba173
+          name: Алексей
+          description: Изучает разные районы города и сохраняет интересные находки
+          avatar_url: /assets/profiles/alexey.webp
+          available_years: [2025, 2026]
+        - id: 63d89c72-f414-418f-820c-87de16c1e62e
+          name: Мария
+          description: Продаёт вещи для дома и часто пользуется доставкой
+          avatar_url: /assets/profiles/maria.webp
+          available_years: [2026]
+
+    Recap:
+      summary: Однажды сформированные итоги в концепции города
+      value:
+        schema_version: "2.0"
+        id: 6dfc1418-e106-49ab-b839-c9498418e8f6
+        profile_id: 19369d67-1db3-4e87-b8a8-9c82991ba173
+        year: 2026
+        profile:
+          id: 19369d67-1db3-4e87-b8a8-9c82991ba173
+          name: Алексей
+          avatar_url: /assets/profiles/alexey.webp
+        generation:
+          algorithm_version: recap-rules-2026.08.2-spike
+          feature_schema_version: features-v1
+          activity_hash: sha256:e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855
+          generated_at: "2026-08-05T17:30:00Z"
+          narrative:
+            source: mistral
+            prompt_version: city-summary-v2-spike
+            model: mistral-small-latest
+        theme:
+          code: city
+          main_district:
+            code: goods
+            title: Товары
+          accent_token: violet
+        cards:
+          - id: intro
+            type: intro
+            position: 0
+            visibility: shareable
+            title: Твой город за год готов
+            description: Посмотрим, какие районы стали для тебя главными
+            explainable: false
+            visual: {kind: skyline, asset_code: city-intro}
+            data: {year: 2026}
+          - id: active-days
+            type: metric
+            position: 1
+            visibility: shareable
+            title: 84 дня в ритме города
+            description: Ты возвращался в город почти каждую неделю
+            explainable: false
+            visual: {kind: calendar, asset_code: active-days}
+            data:
+              metric_code: active_days
+              value: 84
+              unit: days
+              secondary_label: Активность была заметна в 11 месяцах
+          - id: main-district
+            type: district
+            position: 2
+            visibility: shareable
+            title: Твой главный район — Товары
+            description: Чаще всего ты гулял по улице Электроники
+            explainable: true
+            visual: {kind: district, asset_code: goods-electronics}
+            data:
+              vertical: {code: goods, title: Товары}
+              activity_share: 0.43
+              top_category: {code: electronics, title: Электроника, vertical_code: goods}
+          - id: archetype
+            type: archetype
+            position: 3
+            visibility: shareable
+            title: Вдумчивый искатель находок
+            description: Ты внимательно изучал предложения и сохранял лучшие варианты
+            explainable: true
+            visual: {kind: character, asset_code: thoughtful-findings-seeker}
+            data:
+              role: {code: findings_seeker, title: Искатель находок}
+              style: {code: thoughtful, title: Вдумчивый}
+          - id: achievements
+            type: achievements
+            position: 4
+            visibility: shareable
+            title: Твои городские звания
+            description: Достижения, которые лучше всего описывают твой год
+            explainable: true
+            visual: {kind: badge, asset_code: top-achievements}
+            data:
+              total_count: 3
+              items:
+                - code: findings_collector
+                  title: Коллекционер находок
+                  description: Ты собрал большую коллекцию избранных объявлений
+                  level: guru
+                  icon: findings-collector-guru
+                  metric_code: favorites_count
+                  current_value: 46
+                  next_level_threshold: null
+          - id: summary
+            type: summary
+            position: 5
+            visibility: personal
+            title: Город узнал в тебе внимательного исследователя
+            description: Ты уверенно исследовал районы и сохранял лучшие находки.
+            explainable: false
+            visual: {kind: illustration, asset_code: city-summary}
+            data:
+              role_code: findings_seeker
+              style_code: thoughtful
+              achievement_codes: [findings_collector]
+          - id: final
+            type: final
+            position: 6
+            visibility: shareable
+            title: До встречи в городе
+            description: Сохрани итоги или поделись городскими званиями
+            explainable: false
+            visual: {kind: skyline, asset_code: city-final}
+            data: {show_share_button: true, show_feedback: true}
+        capabilities:
+          share_available: true
+          explanation_available: true
+          feedback_available: true
+
+    RecapExplanation:
+      summary: Причина выбора архетипа
+      value:
+        recap_id: 6dfc1418-e106-49ab-b839-c9498418e8f6
+        algorithm_version: recap-rules-2026.08.2-spike
+        activity_hash: sha256:e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855
+        decisions:
+          - card_id: archetype
+            kind: archetype_role
+            code: findings_seeker
+            reason: Сохранений было заметно больше, чем завершённых покупок
+            rule_version: archetype-rules-v2-spike
+            facts:
+              - metric_code: favorites_count
+                actual: 46
+                operator: gte
+                threshold: 30
+                matched: true
+
+    ShareCard:
+      summary: Публичная карточка без приватных данных
+      value:
+        schema_version: "2.0"
+        recap_id: 6dfc1418-e106-49ab-b839-c9498418e8f6
+        profile_name: Алексей
+        avatar_url: https://cdn.example/avatar.png
+        year: 2026
+        title: Мой год в городе Авито
+        subtitle: Вдумчивый искатель находок
+        main_district: {code: goods, title: Товары}
+        facts:
+          - kind: main_district
+            label: Главный район
+            value: Товары
+          - kind: active_days
+            label: Дней активности
+            value: "84"
+        achievements:
+          - code: findings_collector
+            title: Коллекционер находок
+            level: guru
+            icon: findings-collector-guru
+        visual:
+          theme: city
