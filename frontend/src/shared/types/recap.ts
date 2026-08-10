@@ -84,6 +84,8 @@ export interface Recap {
   /** id самого recap — им ходим в /explanation, /share, /interactions. */
   recapId: string;
   profileId: string;
+  /** Имя нужно только для минимальной адаптации текстов тестового профиля. */
+  profileName: string;
   year: number;
   /** `algorithm_version` бэкенда. */
   rulesVersion: string;

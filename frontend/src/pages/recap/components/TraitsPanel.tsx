@@ -33,7 +33,7 @@ export function TraitsPanel({ role, style }: Props) {
         onClick={() => setOpen((value) => !value)}
         aria-expanded={open}
       >
-        {open ? 'Скрыть' : 'Почему я такой?'}
+        {open ? 'Скрыть' : 'Почему так?'}
       </button>
 
       {open && (

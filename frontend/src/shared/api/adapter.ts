@@ -38,6 +38,41 @@ const VERTICAL_TONE: Record<VerticalCode, { tone: BrandTone; shade: 0 | 1 | 2 }>
 
 const PROFILE_TONES: BrandTone[] = ['blue', 'purple', 'green', 'red'];
 
+/**
+ * Тексты бэкенда местами обращаются к пользователю в мужском роде.
+ * На фронте приводим известные формулировки к нейтральным: так одна и та же
+ * копия подходит любому профилю без ветвления по имени или полу.
+ */
+function neutralizeProfileCopy(text: string | undefined): string | undefined {
+  if (!text) return text;
+
+  const replacements: Array<[RegExp, string]> = [
+    [/Ты сохранял объявления, к которым хотелось вернуться/gu, 'Сохранялись объявления, к которым хотелось вернуться'],
+    [/Ты внимательно исследовал предложения города/gu, 'Предложения города изучались особенно внимательно'],
+    [/Ты регулярно пополнял город своими предложениями/gu, 'В городе регулярно появлялись новые собственные предложения'],
+    [/Ты был активен в покупательских и продавцовских сценариях/gu, 'Активность была заметна и в покупательских, и в продавцовских сценариях'],
+    [/Ты успешно завершал продажи и уверенно управлял своей витриной/gu, 'Продажи успешно завершались, а витрина оставалась под контролем'],
+    [/Ты собрал коллекцию объявлений, к которым хотелось возвращаться/gu, 'Собралась коллекция объявлений, к которым хотелось возвращаться'],
+    [/Ты исследовал разные улицы и категории города Авито/gu, 'Исследовались разные улицы и категории города Авито'],
+    [/Ты регулярно возвращался в город в течение года/gu, 'Возвращение в город происходило регулярно в течение года'],
+    [/Ты использовал доставку, чтобы сделки проходили удобнее/gu, 'Доставка помогала проводить сделки удобнее'],
+    [/Ты активно пополнял собственную витрину объявлениями/gu, 'Собственная витрина активно пополнялась объявлениями'],
+    [/Ты находил подходящие предложения и завершал покупки/gu, 'Находились подходящие предложения и завершались покупки'],
+    [/Ты сохранял серию активности несколько дней подряд/gu, 'Активность сохранялась несколько дней подряд'],
+    [/Ты много изучал предложения, сохранял интересные варианты и редко переходил к завершённым сделкам/gu, 'Предложения активно изучались, интересные варианты сохранялись, а до завершённых сделок доходило реже'],
+    [/Ты исследовал много категорий и несколько районов без одного доминирующего направления/gu, 'Исследовались разные категории и несколько районов без одного доминирующего направления'],
+    [/Ты внимательно изучал и сохранял предложения, не торопясь переходить к покупке/gu, 'Предложения внимательно изучались и сохранялись без спешки с покупкой'],
+    [/Ты возвращался в город регулярно на протяжении значительной части года/gu, 'Возвращение в город происходило регулярно на протяжении значительной части года'],
+    [/Ты был активен ([^.]+)(\.)/gu, 'Активность сохранялась на протяжении $1$2'],
+    [/Ты совершил (\d+) сделок/gu, 'Завершённых сделок за год: $1'],
+  ];
+
+  return replacements.reduce(
+    (result, [pattern, replacement]) => result.replace(pattern, replacement),
+    text,
+  );
+}
+
 const LEVEL_TITLE: Record<AchievementLevel, string> = {
   newcomer: 'Новичок',
   local: 'Местный',
@@ -150,6 +185,7 @@ function buildDistricts(card: DistrictCardDTO | undefined): District[] {
 
 export function adaptRecap(dto: RecapDTO): Recap {
   const cards = [...dto.cards].sort((a, b) => a.position - b.position);
+  const profileName = dto.profile.name;
 
   const districtCard = cards.find((card) => card.type === 'district');
   const archetypeCard = cards.find((card) => card.type === 'archetype');
@@ -167,7 +203,7 @@ export function adaptRecap(dto: RecapDTO): Recap {
     group: item.level,
     groupTitle: LEVEL_TITLE[item.level],
     title: item.title,
-    reason: item.description,
+    reason: neutralizeProfileCopy(item.description),
     facts: [],
   }));
 
@@ -177,7 +213,7 @@ export function adaptRecap(dto: RecapDTO): Recap {
       kind: card.type,
       eyebrow: card.eyebrow ?? undefined,
       title: card.title,
-      narrative: card.description ?? '',
+      narrative: neutralizeProfileCopy(card.description ?? '') ?? '',
     };
 
     switch (card.type) {
@@ -218,6 +254,7 @@ export function adaptRecap(dto: RecapDTO): Recap {
   return {
     recapId: dto.id,
     profileId: dto.profile_id,
+    profileName,
     year: dto.year,
     rulesVersion: dto.generation.algorithm_version,
     seed: seedFromHash(dto.generation.activity_hash),
@@ -226,7 +263,7 @@ export function adaptRecap(dto: RecapDTO): Recap {
     cityName: summaryCard?.title ?? 'Твой город за год',
     // Готовая персональная суммаризация. Одинаково работает и для template,
     // и для mistral — фронт свою версию не пишет и источник не различает.
-    summaryText: summaryCard?.description ?? undefined,
+    summaryText: neutralizeProfileCopy(summaryCard?.description ?? undefined),
     totals: {
       activeDays: activeDaysCard?.data.value,
       districts: districts.length,
@@ -256,14 +293,18 @@ export function applyExplanation(recap: Recap, dto: RecapExplanationDTO): Recap 
 
   return {
     ...recap,
-    role: { ...recap.role, reason: role?.reason },
-    style: { ...recap.style, reason: style?.reason },
+    role: { ...recap.role, reason: neutralizeProfileCopy(role?.reason) },
+    style: { ...recap.style, reason: neutralizeProfileCopy(style?.reason) },
     badges: recap.badges.map((badge) => {
       const decision = dto.decisions.find(
         (item) => item.kind === 'achievement' && item.code === badge.id,
       );
       if (!decision) return badge;
-      return { ...badge, reason: decision.reason, facts: decision.facts.map(factToText) };
+      return {
+        ...badge,
+        reason: neutralizeProfileCopy(decision.reason),
+        facts: decision.facts.map(factToText),
+      };
     }),
   };
 }
